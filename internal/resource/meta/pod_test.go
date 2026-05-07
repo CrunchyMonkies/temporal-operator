@@ -22,6 +22,7 @@ import (
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/resource/meta"
+	"github.com/alexandrevilain/temporal-operator/pkg/version"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -32,7 +33,9 @@ func newTestCluster() *v1beta1.TemporalCluster {
 			Name:      "test-cluster",
 			Namespace: "default",
 		},
-		Spec: v1beta1.TemporalClusterSpec{},
+		Spec: v1beta1.TemporalClusterSpec{
+			Version: version.MustNewVersionFromString("1.24.1"),
+		},
 	}
 }
 
