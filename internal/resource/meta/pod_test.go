@@ -41,7 +41,7 @@ func TestBuildPodObjectMeta_PreservesExistingAnnotations(t *testing.T) {
 	existing := metav1.ObjectMeta{
 		Annotations: map[string]string{
 			"kubectl.kubernetes.io/restartedAt": "2024-01-01T00:00:00Z",
-			"custom-annotation":                "custom-value",
+			"custom-annotation":                 "custom-value",
 		},
 	}
 
