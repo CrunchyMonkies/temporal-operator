@@ -109,6 +109,10 @@ func (b *SchemaScriptsConfigmapBuilder) baseData() baseData {
 		baseData.MTLSProvider = string(b.instance.Spec.MTLS.Provider)
 	}
 
+	// Temporal >= 1.30 dropped curl from the admin-tools image; the MTLS
+	// sidecar-shutdown footer must use busybox wget instead.
+	baseData.UseWget = b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0)
+
 	return baseData
 }
 
@@ -213,6 +217,18 @@ func (b *SchemaScriptsConfigmapBuilder) getCassandraArgs(spec *v1beta1.Datastore
 	return args
 }
 
+// getElasticsearchArgs builds the connection flags for temporal-elasticsearch-tool
+// (Temporal >= 1.30). TLS flags are appended by the shared block in getStoreArgs.
+func (b *SchemaScriptsConfigmapBuilder) getElasticsearchArgs(spec *v1beta1.DatastoreSpec) *orderedmap.OrderedMap[string, string] {
+	args := orderedmap.NewOrderedMap[string, string]()
+	args.Set(schema.CLIOptEndpoint, spec.Elasticsearch.URL)  // --endpoint
+	args.Set(schema.CLIOptUser, spec.Elasticsearch.Username) // --user
+	if spec.PasswordSecretRef != nil {
+		args.Set(schema.CLIOptPassword, fmt.Sprintf("$%s", spec.GetPasswordEnvVarName())) // --password
+	}
+	return args
+}
+
 func (b *SchemaScriptsConfigmapBuilder) getStoreArgs(spec *v1beta1.DatastoreSpec) (*orderedmap.OrderedMap[string, string], error) {
 	var args *orderedmap.OrderedMap[string, string]
 	var err error
@@ -228,7 +244,9 @@ func (b *SchemaScriptsConfigmapBuilder) getStoreArgs(spec *v1beta1.DatastoreSpec
 		if err != nil {
 			return nil, err
 		}
-	case v1beta1.ElasticsearchDatastore, v1beta1.UnknownDatastore:
+	case v1beta1.ElasticsearchDatastore:
+		args = b.getElasticsearchArgs(spec)
+	case v1beta1.UnknownDatastore:
 		return nil, fmt.Errorf("unsupported datastore: %s", spec.GetType())
 	}
 
@@ -270,7 +288,10 @@ func (b *SchemaScriptsConfigmapBuilder) getStoreTool(storeType v1beta1.Datastore
 		// Fix for https://github.com/temporalio/temporal/blob/master/tools/cassandra/main.go#L70
 		// Which requires an env var set.
 		tool = "CASSANDRA_PORT=9042 temporal-cassandra-tool"
-	case v1beta1.UnknownDatastore, v1beta1.ElasticsearchDatastore:
+	case v1beta1.ElasticsearchDatastore:
+		// Temporal >= 1.30 ships temporal-elasticsearch-tool in the admin-tools image.
+		tool = "temporal-elasticsearch-tool"
+	case v1beta1.UnknownDatastore:
 		tool = ""
 	}
 	return tool
@@ -337,6 +358,16 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreCreateTemplate(spec *v1beta1.Dat
 func (b *SchemaScriptsConfigmapBuilder) GetStoreSetupTemplate(spec *v1beta1.DatastoreSpec) (string, error) {
 	storeType := spec.GetType()
 	if storeType == v1beta1.ElasticsearchDatastore {
+		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
+		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
+			args := b.getElasticsearchArgs(spec)
+			return b.renderTemplate(setupESVisibilityTool, esToolData{
+				baseData:       b.baseData(),
+				Tool:           b.getStoreTool(storeType),
+				ConnectionArgs: b.argsMapToString(args),
+				Indices:        spec.Elasticsearch.Indices,
+			})
+		}
 		data := esSchemaData{
 			baseData:       b.baseData(),
 			Version:        b.getESVersion(spec.Elasticsearch),
@@ -366,6 +397,16 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreSetupTemplate(spec *v1beta1.Data
 func (b *SchemaScriptsConfigmapBuilder) GetStoreUpdateTemplate(spec *v1beta1.DatastoreSpec, targetSchema Schema) (string, error) {
 	storeType := spec.GetType()
 	if storeType == v1beta1.ElasticsearchDatastore {
+		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
+		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
+			args := b.getElasticsearchArgs(spec)
+			return b.renderTemplate(updateESVisibilityTool, esToolData{
+				baseData:       b.baseData(),
+				Tool:           b.getStoreTool(storeType),
+				ConnectionArgs: b.argsMapToString(args),
+				Indices:        spec.Elasticsearch.Indices,
+			})
+		}
 		data := esSchemaData{
 			baseData:       b.baseData(),
 			Version:        b.getESVersion(spec.Elasticsearch),
