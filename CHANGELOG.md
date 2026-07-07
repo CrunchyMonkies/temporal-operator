@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+Improvements:
+- Add support for Temporal Server v1.29.x. The default Temporal version is now `1.29.7` and the supported version range is extended to `< 1.30.0`. The default Temporal UI version is now `2.42.1`. Temporal v1.29 introduces only dynamic-config changes (task-queue fairness, task-queue config API), which are already supported through the cluster `dynamicConfig` field.
+
+Updates:
+- Bump `go.temporal.io/server` to v1.29.7, `go.temporal.io/api` to v1.53.0.
+
 ## 0.12.2
 
 **Release date:** 2023-04-02

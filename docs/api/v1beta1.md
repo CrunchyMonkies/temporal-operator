@@ -5297,6 +5297,32 @@ TemporalNamespaceArchivalSpec
 If not set, the default cluster configuration is used.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>customSearchAttributes</code><br>
+<em>
+map[string]string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>CustomSearchAttributes is an optional mapping of custom search attribute names to types.
+Supported types: Text, Keyword, Int, Double, Bool, DateTime, KeywordList.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>allowSearchAttributeDeletion</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>AllowSearchAttributeDeletion makes the controller remove custom search attributes
+from the Temporal server if they are not present in the spec.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -5519,6 +5545,32 @@ TemporalNamespaceArchivalSpec
 <em>(Optional)</em>
 <p>Archival is a per-namespace archival configuration.
 If not set, the default cluster configuration is used.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>customSearchAttributes</code><br>
+<em>
+map[string]string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>CustomSearchAttributes is an optional mapping of custom search attribute names to types.
+Supported types: Text, Keyword, Int, Double, Bool, DateTime, KeywordList.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>allowSearchAttributeDeletion</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>AllowSearchAttributeDeletion makes the controller remove custom search attributes
+from the Temporal server if they are not present in the spec.</p>
 </td>
 </tr>
 </tbody>
