@@ -360,7 +360,12 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreSetupTemplate(spec *v1beta1.Data
 	if storeType == v1beta1.ElasticsearchDatastore {
 		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
 		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
-			args := b.getElasticsearchArgs(spec)
+			// getStoreArgs routes ES to getElasticsearchArgs and appends the shared
+			// TLS flags, so the tool gets --tls/--tls-*-file when the store uses TLS.
+			args, err := b.getStoreArgs(spec)
+			if err != nil {
+				return "", fmt.Errorf("can't get store args: %w", err)
+			}
 			return b.renderTemplate(setupESVisibilityTool, esToolData{
 				baseData:       b.baseData(),
 				Tool:           b.getStoreTool(storeType),
@@ -399,7 +404,10 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreUpdateTemplate(spec *v1beta1.Dat
 	if storeType == v1beta1.ElasticsearchDatastore {
 		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
 		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
-			args := b.getElasticsearchArgs(spec)
+			args, err := b.getStoreArgs(spec)
+			if err != nil {
+				return "", fmt.Errorf("can't get store args: %w", err)
+			}
 			return b.renderTemplate(updateESVisibilityTool, esToolData{
 				baseData:       b.baseData(),
 				Tool:           b.getStoreTool(storeType),
