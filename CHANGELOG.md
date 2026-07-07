@@ -5,10 +5,13 @@ All notable changes to this project are documented in this file.
 ## Unreleased
 
 Improvements:
-- Add support for Temporal Server v1.29.x. The default Temporal version is now `1.29.7` and the supported version range is extended to `< 1.30.0`. The default Temporal UI version is now `2.42.1`. Temporal v1.29 introduces only dynamic-config changes (task-queue fairness, task-queue config API), which are already supported through the cluster `dynamicConfig` field.
+- Add support for Temporal Server v1.29.x. Temporal v1.29 introduces only dynamic-config changes (task-queue fairness, task-queue config API), which are already supported through the cluster `dynamicConfig` field.
+- Add support for Temporal Server v1.30.x. The default Temporal version is now `1.30.5`, the default Temporal UI version is now `2.48.1`, and the supported version range is extended to `< 1.31.0`.
+  - Temporal v1.30 removed `dockerize`/`auto-setup` from the `temporalio/server` image and moved config-template rendering into the server binary (embedded sprig engine). For clusters running `>= 1.30`, the operator now emits config templates with the `# enable-template` header and sprig `{{ env "NAME" }}` placeholders (instead of the dockerize `{{ .Env.NAME }}` syntax), sets `TEMPORAL_SERVER_CONFIG_FILE_PATH`, and selects the service to start through the new `TEMPORAL_SERVICES` environment variable (the legacy `SERVICES` variable is still set for backward compatibility).
+- Broken releases: `v1.30.0` has no published GitHub release upstream (silently skipped) and is now rejected; use `v1.30.1+`.
 
 Updates:
-- Bump `go.temporal.io/server` to v1.29.7, `go.temporal.io/api` to v1.53.0.
+- Bump `go.temporal.io/server` to v1.30.5, `go.temporal.io/api` to v1.62.2, `go.temporal.io/sdk` to v1.38.0.
 
 ## 0.12.2
 

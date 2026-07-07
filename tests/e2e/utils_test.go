@@ -48,7 +48,7 @@ import (
 
 const doesNotExistName = "does-not-exist"
 
-var defaultVersion = version.MustNewVersionFromString("1.29.7")
+var defaultVersion = version.MustNewVersionFromString("1.30.5")
 
 func deployAndWaitForTemporalWithPostgres(ctx context.Context, cfg *envconf.Config, namespace string) (*v1beta1.TemporalCluster, error) {
 	// create the postgres
