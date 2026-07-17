@@ -44,6 +44,49 @@ The documentation is available at: [https://temporal-operator.pages.dev/](https:
 
 To start using the Operator and deploy you first cluster in a matter of minutes, follow the documentation's [getting started guide](https://temporal-operator.pages.dev/getting-started/).
 
+## Installation from CrunchyMonkies GitHub Packages
+
+This fork publishes its release artifacts to its own [GitHub Packages](https://github.com/orgs/CrunchyMonkies/packages) (GHCR) instead of the upstream registry:
+
+| Artifact         | Location                                                      |
+|------------------|--------------------------------------------------------------|
+| Container image  | `ghcr.io/crunchymonkies/temporal-operator`                   |
+| Helm chart (OCI) | `ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator` |
+
+Both are tagged with the release version (for example `v0.22.0`).
+
+### Install with Helm
+
+The chart is published as an OCI artifact, so no `helm repo add` is required. Install it directly from GHCR, overriding the manager image so it also points at this fork's registry:
+
+```bash
+helm install temporal-operator \
+  oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator \
+  --version v0.22.0 \
+  --namespace temporal-system \
+  --create-namespace \
+  --set manager.image.repository=ghcr.io/crunchymonkies/temporal-operator
+```
+
+To inspect the chart before installing:
+
+```bash
+helm show values oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version v0.22.0
+helm pull oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version v0.22.0
+```
+
+### Pull the container image directly
+
+```bash
+docker pull ghcr.io/crunchymonkies/temporal-operator:v0.22.0
+```
+
+> **Note:** If the packages are private, authenticate first with a GitHub token that has the `read:packages` scope:
+> ```bash
+> echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username <your-github-user> --password-stdin
+> echo "$GITHUB_TOKEN" | docker login ghcr.io --username <your-github-user> --password-stdin
+> ```
+
 ## Examples
 
 Somes examples are available to help you get started:
