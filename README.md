@@ -53,7 +53,7 @@ This fork publishes its release artifacts to its own [GitHub Packages](https://g
 | Container image  | `ghcr.io/crunchymonkies/temporal-operator`                   |
 | Helm chart (OCI) | `ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator` |
 
-Both are tagged with the release version (for example `v0.22.0`).
+The container image is tagged with the full release tag (for example `v202602.17.0`), while the Helm chart uses the SemVer form without the leading `v` (for example `202602.17.0`).
 
 ### Install with Helm
 
@@ -62,7 +62,7 @@ The chart is published as an OCI artifact, so no `helm repo add` is required. In
 ```bash
 helm install temporal-operator \
   oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator \
-  --version v0.22.0 \
+  --version 202602.17.0 \
   --namespace temporal-system \
   --create-namespace \
   --set manager.image.repository=ghcr.io/crunchymonkies/temporal-operator
@@ -71,14 +71,14 @@ helm install temporal-operator \
 To inspect the chart before installing:
 
 ```bash
-helm show values oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version v0.22.0
-helm pull oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version v0.22.0
+helm show values oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version 202602.17.0
+helm pull oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version 202602.17.0
 ```
 
 ### Pull the container image directly
 
 ```bash
-docker pull ghcr.io/crunchymonkies/temporal-operator:v0.22.0
+docker pull ghcr.io/crunchymonkies/temporal-operator:v202602.17.0
 ```
 
 > **Note:** If the packages are private, authenticate first with a GitHub token that has the `read:packages` scope:

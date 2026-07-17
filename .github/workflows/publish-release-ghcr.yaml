@@ -92,7 +92,13 @@ jobs:
 
       - name: Package and push chart
         run: |
+          # Use the release tag (minus any leading "v") as the chart version and
+          # app version so the published chart and operator image share the tag.
+          version="${GITHUB_REF_NAME#v}"
           mkdir -p out/chart
-          helm package charts/temporal-operator --destination out/chart
+          helm package charts/temporal-operator \
+            --destination out/chart \
+            --version "$version" \
+            --app-version "$GITHUB_REF_NAME"
           chart_pkg="$(ls out/chart/*.tgz)"
           helm push "$chart_pkg" oci://${{ env.REGISTRY }}/${{ steps.ns.outputs.owner }}/temporal-operator-charts
