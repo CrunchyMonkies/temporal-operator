@@ -95,4 +95,4 @@ jobs:
           mkdir -p out/chart
           helm package charts/temporal-operator --destination out/chart
           chart_pkg="$(ls out/chart/*.tgz)"
-          helm push "$chart_pkg" oci://${{ env.REGISTRY }}/${{ steps.ns.outputs.owner }}/charts
+          helm push "$chart_pkg" oci://${{ env.REGISTRY }}/${{ steps.ns.outputs.owner }}/temporal-operator-charts
