@@ -1,12 +1,10 @@
 name: Release Charts
 
+# Disabled: this workflow publishes the chart to GitHub Pages via chart-releaser.
+# This fork publishes the chart to GitHub Packages (OCI) via publish-release-ghcr.yaml.
+# Kept as manual-only so it no longer runs automatically on pushes to main.
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - main
-    paths:
-      - 'charts/**'
 
 jobs:
   release:
