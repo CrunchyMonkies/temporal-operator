@@ -31,6 +31,7 @@ helm install [RELEASE_NAME] temporal-operator/temporal-operator
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | imagePullSecrets | list | `[]` | Image pull secrets for accessing private image repositories. |
+| installCRDs | bool | `true` | Install and manage the CustomResourceDefinitions with this chart. When true, Helm creates the CRDs on install and updates them on upgrade. The CRDs carry `helm.sh/resource-policy: keep`, so they survive `helm uninstall`. Set to false if you manage the CRDs out-of-band. |
 | kubernetesClusterDomain | string | `"cluster.local"` | Domain for the cluster. |
 | manager.args | list | `["--leader-elect"]` | Arguments to be passed to the controller manager container. |
 | manager.containerSecurityContext | object | `{"allowPrivilegeEscalation":false}` | Security context for the controller manager container. |

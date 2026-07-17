@@ -169,9 +169,11 @@ artifacts: kustomize
 	$(KUSTOMIZE) build config/default > ${RELEASE_PATH}/temporal-operator.yaml
 
 .PHONY: helm
-helm: helm-docs manifests artifacts
+helm: helm-docs manifests artifacts yq
 	$(SEDI) 's/^appVersion: ".*"/appVersion: "v$(shell cat VERSION)"/' charts/temporal-operator/Chart.yaml
-	cp ${RELEASE_PATH}/temporal-operator.crds.yaml charts/temporal-operator/crds
+	mkdir -p charts/temporal-operator/files/crds
+	cp ${RELEASE_PATH}/temporal-operator.crds.yaml charts/temporal-operator/files/crds/temporal-operator.crds.yaml
+	$(YQ) -i '.metadata.annotations."helm.sh/resource-policy" = "keep"' charts/temporal-operator/files/crds/temporal-operator.crds.yaml
 	$(HELM_DOCS) --chart-search-root=charts/temporal-operator --template-files=hack/helm/template/README.md.gotmpl
 
 .PHONY: bundle

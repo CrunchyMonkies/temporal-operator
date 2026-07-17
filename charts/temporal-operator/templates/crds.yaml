@@ -1,0 +1,3 @@
+{{- if .Values.installCRDs }}
+{{ .Files.Get "files/crds/temporal-operator.crds.yaml" }}
+{{- end }}

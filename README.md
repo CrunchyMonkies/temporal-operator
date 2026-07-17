@@ -75,6 +75,29 @@ helm show values oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-
 helm pull oci://ghcr.io/crunchymonkies/temporal-operator-charts/temporal-operator --version 202602.17.0
 ```
 
+### CRD management
+
+By default (`installCRDs=true`) the chart installs the Temporal CRDs and, unlike
+the native Helm `crds/` directory, **updates them on `helm upgrade`** so CRD
+changes ship with the release. The CRDs are annotated with
+`helm.sh/resource-policy: keep`, so they are retained on `helm uninstall` (this
+prevents Kubernetes from cascade-deleting your `TemporalCluster` resources). Set
+`--set installCRDs=false` if you manage the CRDs out-of-band.
+
+> **Upgrading from a chart that shipped CRDs via the `crds/` directory** (chart
+> `202602.17.0` and earlier): those CRDs were not tracked by Helm, so the first
+> upgrade to a chart that templates them fails with an ownership error. Adopt the
+> existing CRDs once before upgrading:
+> ```bash
+> for c in temporalclusters temporalclusterclients temporalnamespaces temporalschedules; do
+>   kubectl label   crd $c.temporal.io app.kubernetes.io/managed-by=Helm --overwrite
+>   kubectl annotate crd $c.temporal.io \
+>     meta.helm.sh/release-name=temporal-operator \
+>     meta.helm.sh/release-namespace=temporal-system --overwrite
+> done
+> ```
+> Fresh installs need nothing.
+
 ### Pull the container image directly
 
 ```bash
