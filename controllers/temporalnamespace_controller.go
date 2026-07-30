@@ -40,13 +40,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	"github.com/alexandrevilain/temporal-operator/pkg/temporal"
 )
 
 // TemporalNamespaceReconciler reconciles a Namespace object.
 type TemporalNamespaceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Resolver *targetcluster.Resolver
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalnamespaces,verbs=get;list;watch;create;update;patch;delete
@@ -95,6 +97,14 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 	}
 
+	// The namespace's own target is not configurable: it is wherever the cluster it belongs to
+	// runs, which is the only place a namespace can be created. Its client is needed here to read
+	// the frontend's certificate, which lives beside the temporal deployment.
+	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
+	if err != nil {
+		return r.handleError(namespace, v1beta1.TargetClusterResolutionFailedReason, err)
+	}
+
 	if !cluster.IsReady() {
 		logger.Info("Skipping namespace reconciliation until referenced cluster is ready")
 
@@ -105,7 +115,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !namespace.ObjectMeta.DeletionTimestamp.IsZero() {
 		logger.Info("Deleting namespace")
 
-		err := r.ensureNamespaceDeleted(ctx, namespace, cluster)
+		err := r.ensureNamespaceDeleted(ctx, namespace, cluster, target)
 		if err != nil {
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
@@ -115,7 +125,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Ensure the namespace have a deletion marker if the AllowDeletion is set to true.
 	r.ensureFinalizer(namespace)
 
-	client, err := temporal.GetClusterNamespaceClient(ctx, r.Client, cluster)
+	client, err := temporal.GetClusterNamespaceClient(ctx, target.Client, cluster)
 	if err != nil {
 		err = fmt.Errorf("can't create cluster namespace client: %w", err)
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -138,7 +148,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	// Reconcile custom search attributes if any are configured or deletion is allowed.
 	if len(namespace.Spec.CustomSearchAttributes) > 0 || namespace.Spec.AllowSearchAttributeDeletion {
-		clusterClient, err := temporal.GetClusterClient(ctx, r.Client, cluster)
+		clusterClient, err := temporal.GetClusterClient(ctx, target.Client, cluster)
 		if err != nil {
 			err = fmt.Errorf("can't create cluster client for search attributes: %w", err)
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -165,14 +175,14 @@ func (r *TemporalNamespaceReconciler) ensureFinalizer(namespace *v1beta1.Tempora
 	}
 }
 
-func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster) error {
+func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
 	logger := log.FromContext(ctx)
 
 	if !controllerutil.ContainsFinalizer(namespace, deletionFinalizer) {
 		return nil
 	}
 
-	client, err := temporal.GetClusterClient(ctx, r.Client, cluster)
+	client, err := temporal.GetClusterClient(ctx, target.Client, cluster)
 	if err != nil {
 		return fmt.Errorf("can't create cluster client: %w", err)
 	}

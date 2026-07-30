@@ -39,6 +39,7 @@ import (
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/resource/mtls/certmanager"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	"github.com/alexandrevilain/temporal-operator/pkg/kubernetes"
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 )
@@ -47,7 +48,10 @@ import (
 type TemporalClusterClientReconciler struct {
 	Base
 
+	// AvailableAPIs describes the cluster the operator watches, which is where the certificates of
+	// clusters using the local target are issued.
 	AvailableAPIs *discovery.AvailableAPIs
+	Resolver      *targetcluster.Resolver
 }
 
 var (
@@ -117,11 +121,26 @@ func (r *TemporalClusterClientReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}
 
+	// The certificate has to be issued where the cluster's CA issuer is, which is the cluster the
+	// temporal deployment runs in rather than necessarily this one.
+	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
+	if err != nil {
+		return reconcile.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
 	builder := certmanager.NewGenericFrontendClientCertificateBuilder(cluster, r.Scheme, clusterClient.GetName())
 	certificateObject := builder.Build()
 
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, certificateObject, func() error {
-		return builder.Update(certificateObject)
+	_, err = controllerutil.CreateOrUpdate(ctx, target.Client, certificateObject, func() error {
+		if err := builder.Update(certificateObject); err != nil {
+			return err
+		}
+
+		// The builder owner-references the TemporalCluster, which the target may not have a copy
+		// of; label ownership takes over there so the cluster's cleanup still reaches this.
+		targetcluster.Claim(target, certificateObject, cluster, temporalClusterKind)
+
+		return nil
 	})
 	if err != nil {
 		return reconcile.Result{}, err
@@ -135,9 +154,11 @@ func (r *TemporalClusterClientReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	if clusterClient.GetNamespace() != cluster.GetNamespace() {
+	// A remote target always needs the copy: the secret cert-manager wrote is in the target cluster,
+	// and the client asking for it reads from this one.
+	if clusterClient.GetNamespace() != cluster.GetNamespace() || !target.IsLocal() {
 		originalSecret := client.ObjectKey{Namespace: certificate.GetNamespace(), Name: certificate.Spec.SecretName}
-		err = kubernetes.NewSecretCopier(r.Client, r.Scheme).Copy(ctx, clusterClient, originalSecret, clusterClient.GetNamespace())
+		err = kubernetes.NewSecretCopierFrom(target.Client, r.Client, r.Scheme).Copy(ctx, clusterClient, originalSecret, clusterClient.GetNamespace())
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -179,6 +200,9 @@ func (r *TemporalClusterClientReconciler) SetupWithManager(mgr ctrl.Manager) err
 		return err
 	}
 
+	// These watches only cover the cluster the operator watches. A certificate issued in a target
+	// cluster is picked up by the requeue below instead, which is why the not-ready branch above
+	// requeues rather than waiting for an event.
 	if r.AvailableAPIs.CertManager {
 		controller = controller.
 			Watches(

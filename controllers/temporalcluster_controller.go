@@ -30,12 +30,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/discovery"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istionetworkingv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -61,13 +64,27 @@ import (
 
 const (
 	ownerKey = ".metadata.controller"
+
+	// temporalClusterKind is the kind recorded in the ownership labels on resources created in a
+	// target cluster, and matched again when mapping a change there back to the cluster to
+	// reconcile.
+	temporalClusterKind = "TemporalCluster"
 )
 
 // TemporalClusterReconciler reconciles a Cluster object.
 type TemporalClusterReconciler struct {
 	Base
 
+	// AvailableAPIs describes the cluster the operator watches, and decides which watches and
+	// indexes are set up at startup. What a target cluster serves is discovered per target instead,
+	// through Target.AvailableAPIs.
 	AvailableAPIs *discovery.AvailableAPIs
+	Resolver      *targetcluster.Resolver
+
+	// controller is the handle SetupWithManager built. Drift detection watches for a target cluster
+	// can only be registered once that target has been resolved, which happens long after startup,
+	// so the handle is kept to add them to a running controller.
+	controller controller.Controller
 }
 
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;delete
@@ -104,8 +121,7 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Check if the resource has been marked for deletion
 	if !cluster.ObjectMeta.DeletionTimestamp.IsZero() {
-		logger.Info("Deleting temporal cluster", "name", cluster.Name)
-		return reconcile.Result{}, nil
+		return r.reconcileDelete(ctx, cluster)
 	}
 
 	patchHelper, err := patch.NewHelper(cluster, r.Client)
@@ -127,7 +143,29 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		v1beta1.SetTemporalClusterReady(cluster, metav1.ConditionUnknown, v1beta1.ProgressingReason, "")
 	}
 
-	if requeueAfter, err := r.reconcilePersistence(ctx, cluster); err != nil || requeueAfter > 0 {
+	// Everything below this point is created in the resolved target, which is the cluster the
+	// custom resource itself lives in unless it says otherwise.
+	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
+	if err != nil {
+		logger.Error(err, "Can't resolve the target cluster")
+		return r.handleErrorWithRequeue(cluster, v1beta1.TargetClusterResolutionFailedReason, err, 10*time.Second)
+	}
+
+	// The finalizer is what makes cleanup possible at all for a remote target, so it has to be in
+	// place before the first resource is created there. It is deliberately not added for a local
+	// target: owner references handle that case, and an unnecessary finalizer only creates a way
+	// for resources to get stuck.
+	if !target.IsLocal() {
+		controllerutil.AddFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+
+		err := r.Resolver.RegisterWatches(ctx, target, r.controller, temporalClusterKind)
+		if err != nil {
+			logger.Error(err, "Can't watch the target cluster for drift")
+			return r.handleErrorWithRequeue(cluster, v1beta1.TargetClusterResolutionFailedReason, err, 10*time.Second)
+		}
+	}
+
+	if requeueAfter, err := r.reconcilePersistence(ctx, cluster, target); err != nil || requeueAfter > 0 {
 		if err != nil {
 			logger.Error(err, "Can't reconcile persistence")
 			if requeueAfter == 0 {
@@ -140,19 +178,64 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	if err := r.reconcileResources(ctx, cluster); err != nil {
+	if err := r.reconcileResources(ctx, cluster, target); err != nil {
 		logger.Error(err, "Can't reconcile resources")
 		return r.handleErrorWithRequeue(cluster, v1beta1.ResourcesReconciliationFailedReason, err, 2*time.Second)
 	}
 
-	return r.handleSuccess(cluster)
+	result, err := r.handleSuccess(cluster)
+	if err == nil && target.ResyncPeriod > 0 {
+		// This target detects drift by being reconciled on an interval instead of by watching, so
+		// something has to keep asking.
+		result.RequeueAfter = target.ResyncPeriod
+	}
+
+	return result, err
 }
 
-func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temporalCluster *v1beta1.TemporalCluster) error {
+// reconcileDelete removes the resources the cluster owns in a target cluster before letting it go.
+//
+// For a local target there is nothing to do: the owner references are real and the garbage
+// collector handles the cascade. A remote target has neither, so the operator deletes them itself,
+// which is the whole reason the finalizer exists.
+func (r *TemporalClusterReconciler) reconcileDelete(ctx context.Context, cluster *v1beta1.TemporalCluster) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Deleting temporal cluster", "name", cluster.Name)
+
+	if !controllerutil.ContainsFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer) {
+		return reconcile.Result{}, nil
+	}
+
+	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
+	if err != nil {
+		// Dropping the finalizer here would orphan every resource the operator created in the
+		// target, with nothing left pointing at them. Hold the cluster instead until the target can
+		// be reached — or until an operator force-removes the finalizer, having decided to accept
+		// the leak.
+		r.Recorder.Event(cluster, corev1.EventTypeWarning, "TargetClusterCleanupBlocked",
+			fmt.Sprintf("Can't delete resources in the target cluster: %s", err))
+
+		return reconcile.Result{}, fmt.Errorf("can't resolve the target cluster to clean it up: %w", err)
+	}
+
+	if err := targetcluster.Cleanup(ctx, target, cluster, temporalClusterKind); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	controllerutil.RemoveFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+
+	return reconcile.Result{}, r.Update(ctx, cluster)
+}
+
+func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temporalCluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
+	base := r.forTarget(target)
+
 	// reconcile configmap first, then compute its hash.
-	configMapObject, err := r.Reconciler.ReconcileBuilder(ctx,
+	configMapObject, err := base.Reconciler.ReconcileBuilder(ctx,
 		temporalCluster,
-		config.NewConfigmapBuilder(temporalCluster, r.Scheme))
+		targetcluster.DecorateBuilder(
+			config.NewConfigmapBuilder(temporalCluster, r.Scheme), target, temporalCluster, temporalClusterKind))
 	if err != nil {
 		return fmt.Errorf("can't reconcile configmap: %w", err)
 	}
@@ -172,7 +255,8 @@ func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temp
 		return err
 	}
 
-	objects, err := r.Reconciler.ReconcileBuilders(ctx, temporalCluster, builders)
+	objects, err := base.Reconciler.ReconcileBuilders(ctx, temporalCluster,
+		targetcluster.DecorateBuilders(builders, target, temporalCluster, temporalClusterKind))
 	if err != nil {
 		return err
 	}
@@ -281,7 +365,7 @@ func (r *TemporalClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 	}
 
-	controller := ctrl.NewControllerManagedBy(mgr).
+	clusterController := ctrl.NewControllerManagedBy(mgr).
 		For(&v1beta1.TemporalCluster{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{},
 			predicate.LabelChangedPredicate{},
@@ -295,7 +379,7 @@ func (r *TemporalClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&batchv1.Job{})
 
 	if r.AvailableAPIs.CertManager {
-		controller = controller.
+		clusterController = clusterController.
 			Owns(&certmanagerv1.Issuer{}).
 			Owns(&certmanagerv1.Certificate{})
 
@@ -307,7 +391,7 @@ func (r *TemporalClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	if r.AvailableAPIs.Istio {
-		controller = controller.
+		clusterController = clusterController.
 			Owns(&istiosecurityv1beta1.PeerAuthentication{}).
 			Owns(&istionetworkingv1beta1.DestinationRule{})
 
@@ -319,7 +403,7 @@ func (r *TemporalClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	if r.AvailableAPIs.PrometheusOperator {
-		controller = controller.Owns(&monitoringv1.ServiceMonitor{})
+		clusterController = clusterController.Owns(&monitoringv1.ServiceMonitor{})
 
 		for _, resource := range []client.Object{&monitoringv1.ServiceMonitor{}} {
 			if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerKey, addPromtheusOperatorResourceToIndex); err != nil {
@@ -328,7 +412,16 @@ func (r *TemporalClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 	}
 
-	return controller.Complete(r)
+	// Built rather than completed so the handle survives: watches for a target cluster can only be
+	// added once that target has been resolved, which happens during a reconcile.
+	built, err := clusterController.Build(r)
+	if err != nil {
+		return err
+	}
+
+	r.controller = built
+
+	return nil
 }
 
 func addResourceToIndex(rawObj client.Object) []string {

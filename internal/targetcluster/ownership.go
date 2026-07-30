@@ -162,6 +162,16 @@ func DecorateBuilders(builders []resource.Builder, target *Target, owner client.
 	return decorated
 }
 
+// DecorateBuilder is DecorateBuilders for a single builder, for callers that produce theirs one at
+// a time — the schema setup jobs, whose builders come from a factory.
+func DecorateBuilder(builder resource.Builder, target *Target, owner client.Object, kind string) resource.Builder {
+	if target.IsLocal() {
+		return builder
+	}
+
+	return decorate(builder, OwnerLabels(owner, kind))
+}
+
 // decorate wraps a single builder, preserving whether it also acts as a resource.Comparer so the
 // reconciler's optional-interface check still sees it.
 func decorate(builder resource.Builder, labels map[string]string) resource.Builder {
@@ -212,6 +222,18 @@ func (b crossClusterBuilder) claim(obj client.Object) {
 		labels[key] = value
 	}
 	obj.SetLabels(labels)
+}
+
+// Claim marks obj as belonging to owner, for callers that assemble an object themselves instead of
+// going through a resource.Builder — the cert-manager Certificate behind a TemporalClusterClient.
+//
+// For a local target it does nothing: owner references resolve there, and are better than labels.
+func Claim(target *Target, obj client.Object, owner client.Object, kind string) {
+	if target.IsLocal() {
+		return
+	}
+
+	crossClusterBuilder{labels: OwnerLabels(owner, kind)}.claim(obj)
 }
 
 // crossClusterComparingBuilder is crossClusterBuilder for builders that provide their own

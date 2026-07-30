@@ -70,6 +70,10 @@ func GetTlSConfigFromSecret(secret *corev1.Secret) (*tls.Config, error) {
 }
 
 // GetClusterClientTLSConfig returns the tls configuration for the provided temporal cluster.
+//
+// The client must address the cluster the temporal deployment runs in, since that is where the
+// frontend's certificate lives — for a cluster with a target cluster reference, that is not the
+// cluster its custom resource lives in.
 func GetClusterClientTLSConfig(ctx context.Context, client client.Client, cluster *v1beta1.TemporalCluster) (*tls.Config, error) {
 	secret := &corev1.Secret{}
 
@@ -92,7 +96,9 @@ func GetClusterClientTLSConfig(ctx context.Context, client client.Client, cluste
 
 func buildClusterClientOptions(ctx context.Context, client client.Client, cluster *v1beta1.TemporalCluster, overrides ...ClientOption) (temporalclient.Options, error) {
 	opts := temporalclient.Options{
-		HostPort: cluster.GetPublicClientAddress(),
+		// Not GetPublicClientAddress: that is in-cluster DNS for the temporal services themselves,
+		// which the operator may have no way to resolve when it runs somewhere else.
+		HostPort: cluster.GetOperatorClientAddress(),
 		Logger:   temporallog.NewTemporalSDKLogFromContext(ctx),
 	}
 	if cluster.MTLSWithCertManagerEnabled() && cluster.Spec.MTLS.FrontendEnabled() {

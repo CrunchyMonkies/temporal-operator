@@ -44,6 +44,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/controllers"
 	"github.com/alexandrevilain/temporal-operator/internal/bootstrap"
 	internaldiscovery "github.com/alexandrevilain/temporal-operator/internal/discovery"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
@@ -146,9 +147,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The local target is the cluster the manager watches. Custom resources that don't name a target
+	// cluster resolve to it, which is what keeps single-cluster operation unchanged.
+	resolver := targetcluster.NewResolver(
+		targetcluster.NewLocalTarget(mgr, discoveryManager, availableAPIs),
+		scheme,
+		ctrl.Log.WithName("targetcluster"),
+	)
+
 	if err = (&controllers.TemporalClusterReconciler{
 		Base:          controllers.New(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorderFor("cluster-controller"), discoveryManager),
 		AvailableAPIs: availableAPIs,
+		Resolver:      resolver,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		os.Exit(1)
@@ -164,22 +174,33 @@ func main() {
 	if err = (&controllers.TemporalClusterClientReconciler{
 		Base:          controllers.New(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorderFor("clusterclient-controller"), discoveryManager),
 		AvailableAPIs: availableAPIs,
+		Resolver:      resolver,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterClient")
 		os.Exit(1)
 	}
 
+	if err = (&controllers.TemporalTargetClusterReconciler{
+		Base:     controllers.New(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorderFor("targetcluster-controller"), discoveryManager),
+		Resolver: resolver,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "TargetCluster")
+		os.Exit(1)
+	}
+
 	if err = (&controllers.TemporalNamespaceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Resolver: resolver,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
 	}
 
 	if err = (&controllers.TemporalScheduleReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Resolver: resolver,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Schedule")
 		os.Exit(1)

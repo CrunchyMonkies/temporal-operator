@@ -30,19 +30,32 @@ import (
 
 type SecretCopier struct {
 	client.Client
+	source client.Reader
 	scheme *runtime.Scheme
 }
 
 func NewSecretCopier(c client.Client, scheme *runtime.Scheme) *SecretCopier {
 	return &SecretCopier{
 		Client: c,
+		source: c,
+		scheme: scheme,
+	}
+}
+
+// NewSecretCopierFrom returns a copier that reads from one cluster and writes to another, for
+// secrets issued next to a temporal deployment in a target cluster but needed where the custom
+// resource asking for them lives.
+func NewSecretCopierFrom(source client.Reader, destination client.Client, scheme *runtime.Scheme) *SecretCopier {
+	return &SecretCopier{
+		Client: destination,
+		source: source,
 		scheme: scheme,
 	}
 }
 
 func (c *SecretCopier) Copy(ctx context.Context, owner client.Object, original client.ObjectKey, destinationNS string) error {
 	secret := &corev1.Secret{}
-	err := c.Get(ctx, original, secret)
+	err := c.source.Get(ctx, original, secret)
 	if err != nil {
 		return fmt.Errorf("can't retrieve original secret: %w", err)
 	}

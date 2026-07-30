@@ -41,13 +41,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	"github.com/alexandrevilain/temporal-operator/pkg/temporal"
 )
 
 // TemporalScheduleReconciler reconciles a Schedule object.
 type TemporalScheduleReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Resolver *targetcluster.Resolver
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalschedules,verbs=get;list;watch;create;update;patch;delete
@@ -125,10 +127,17 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	// The schedule lives in the temporal cluster, so its client has to read the frontend's
+	// certificate from wherever that cluster runs.
+	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
+	if err != nil {
+		return r.handleError(ctx, schedule, v1beta1.TargetClusterResolutionFailedReason, "Resolving target cluster", err)
+	}
+
 	clientOpts := func(opt *temporalclient.Options) {
 		opt.Namespace = schedule.Spec.NamespaceRef.Name
 	}
-	client, err := temporal.GetClusterClient(ctx, r.Client, cluster, clientOpts)
+	client, err := temporal.GetClusterClient(ctx, target.Client, cluster, clientOpts)
 	if err != nil {
 		err = fmt.Errorf("can't create cluster client: %w", err)
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Creating cluster client", err)

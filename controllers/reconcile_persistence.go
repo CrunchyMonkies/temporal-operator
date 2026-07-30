@@ -29,6 +29,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/resource/base"
 	"github.com/alexandrevilain/temporal-operator/internal/resource/persistence"
+	"github.com/alexandrevilain/temporal-operator/internal/targetcluster"
 	"github.com/alexandrevilain/temporal-operator/pkg/version"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -108,19 +109,27 @@ func getDatabaseScriptCommand(script string) []string {
 }
 
 // reconcilePersistence tries to reconcile the cluster persistence.
-func (r *TemporalClusterReconciler) reconcilePersistence(ctx context.Context, cluster *v1beta1.TemporalCluster) (time.Duration, error) {
+// reconcilePersistence sets up the cluster's databases. The schema setup jobs run in the target
+// cluster, next to the database they connect to, rather than wherever the custom resource happens
+// to live.
+func (r *TemporalClusterReconciler) reconcilePersistence(ctx context.Context, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) (time.Duration, error) {
+	targetBase := r.forTarget(target)
+
 	// First of all, ensure status fields are set.
 	r.reconcilePersistenceStatus(cluster)
 
 	// Ensure the configmap containing scripts is up-to-date
-	_, err := r.Reconciler.ReconcileBuilder(ctx, cluster, persistence.NewSchemaScriptsConfigmapBuilder(cluster, r.Scheme))
+	_, err := targetBase.Reconciler.ReconcileBuilder(ctx, cluster,
+		targetcluster.DecorateBuilder(
+			persistence.NewSchemaScriptsConfigmapBuilder(cluster, r.Scheme), target, cluster, temporalClusterKind))
 	if err != nil {
 		return 0, fmt.Errorf("can't reconcile schema script configmap: %w", err)
 	}
 
 	// Ensure the serviceaccount used by jobs is up-to-date
 	serviceAccountBuilder := base.NewServiceAccountBuilder(persistence.ServiceNameSuffix, cluster, r.Scheme)
-	_, err = r.Reconciler.ReconcileBuilders(ctx, cluster, []resource.Builder{serviceAccountBuilder})
+	_, err = targetBase.Reconciler.ReconcileBuilders(ctx, cluster,
+		targetcluster.DecorateBuilders([]resource.Builder{serviceAccountBuilder}, target, cluster, temporalClusterKind))
 	if err != nil {
 		return 0, fmt.Errorf("can't reconcile schema serviceaccount: %w", err)
 	}
@@ -312,8 +321,9 @@ func (r *TemporalClusterReconciler) reconcilePersistence(ctx context.Context, cl
 
 	factory := func(owner runtime.Object, scheme *runtime.Scheme, name string, command []string) resource.Builder {
 		cluster := owner.(*v1beta1.TemporalCluster)
-		return persistence.NewSchemaJobBuilder(cluster, scheme, name, command)
+		return targetcluster.DecorateBuilder(
+			persistence.NewSchemaJobBuilder(cluster, scheme, name, command), target, cluster, temporalClusterKind)
 	}
 
-	return r.Jobs.Reconcile(ctx, cluster, factory, jobs)
+	return targetBase.Jobs.Reconcile(ctx, cluster, factory, jobs)
 }
