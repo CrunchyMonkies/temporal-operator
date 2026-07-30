@@ -9,6 +9,14 @@ spec:
   dnsNames:
   - '{{ include "temporal-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
   - '{{ include "temporal-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+  {{- /* The API server of another cluster reaches the webhook server by a name this one doesn't
+  serve, so that name has to be a SAN of the certificate it presents. */}}
+  {{- with .Values.webhook.certManager.certificate.extraDNSNames }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+  {{- with .Values.webhook.certManager.certificate.extraIPAddresses }}
+  ipAddresses: {{- toYaml . | nindent 2 }}
+  {{- end }}
   issuerRef:
   {{- if .Values.webhook.certManager.certificate.useCustomIssuer }}
     {{- toYaml .Values.webhook.certManager.certificate.issuerRef | nindent 4 }}

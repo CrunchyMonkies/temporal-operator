@@ -2,6 +2,19 @@ manager:
   # -- Arguments to be passed to the controller manager container.
   args:
   - --leader-elect
+  # -- Extra environment variables for the controller manager container.
+  env: []
+  # -- Extra environment variable sources (configMapRef / secretRef) for the controller manager container.
+  envFrom: []
+  # -- Additional volumes to add to the controller manager pod.
+  extraVolumes: []
+  # -- Additional volume mounts to add to the controller manager container.
+  extraVolumeMounts: []
+  # -- Namespace holding the leader election lease.
+  # Defaults to the namespace the operator runs in, which is only correct when the operator
+  # watches the cluster hosting it. Required when `remote.enabled` is true and `--leader-elect`
+  # is passed, because the lease is written to the watched cluster.
+  leaderElectionNamespace: ""
   # -- Security context for the controller manager container.
   containerSecurityContext:
     # -- Disallow privilege escalation for the container.
@@ -36,9 +49,20 @@ webhook:
     targetPort: 9443
   # -- Service type for the webhook server.
   type: ClusterIP
+  # -- Absolute URL the watched cluster's API server uses to reach the webhook server,
+  # for instance `https://temporal-operator.example.com:9443`.
+  # Required when the operator watches a remote cluster: a Service reference only resolves
+  # inside the cluster hosting the operator. The webhook server certificate must carry a
+  # matching SAN, see `webhook.certManager.certificate.extraDNSNames`.
+  url: ""
+  # -- Base64 encoded PEM CA bundle the API server validates the webhook server with.
+  # Only needed for webhook configurations installed outside this release: when left empty
+  # and `remote.bootstrap.enabled` is true, the operator injects the CA of its own serving
+  # certificate into the configurations it applies.
+  caBundle: ""
   # -- Certificate manager settings for the webhook server.
   certManager:
-    # -- Webhook certificate configuration using cert-manager. 
+    # -- Webhook certificate configuration using cert-manager.
     certificate:
       # -- Enabled defines if cert-manager should be used to manage the webhook certificate.
       enabled: true
@@ -47,6 +71,11 @@ webhook:
       # -- Issuer references if you want to use custom issuer
       # In other case will be used selfSigned issuer.
       issuerRef: {}
+      # -- Additional DNS names to add to the webhook server certificate.
+      # Set this to the host in `webhook.url` when the webhook server is reached from another cluster.
+      extraDNSNames: []
+      # -- Additional IP addresses to add to the webhook server certificate.
+      extraIPAddresses: []
   # -- The port that the webhook listens on.
   containerPort: 9443
   # -- Set to true if the webhook should be started in hostNetwork mode.
@@ -55,6 +84,52 @@ webhook:
   # `webhook.containerPort` should be adapted in case it conflicts with the host network.
   hostNetwork: false
 
+remote:
+  # -- Watch a remote cluster instead of the one hosting the operator.
+  # The custom resources, CustomResourceDefinitions and admission webhook configurations then
+  # live in that cluster, not in this one, so `installCRDs` must be false.
+  enabled: false
+  kubeconfig:
+    # -- Name of an existing Secret in the release namespace holding the kubeconfig of the
+    # cluster to watch. Required when `remote.enabled` is true.
+    secretName: ""
+    # -- Secret key holding the kubeconfig.
+    key: kubeconfig
+    # -- Path the kubeconfig Secret is mounted at.
+    mountPath: /etc/temporal-operator/kubeconfig
+    # -- Context to select from the kubeconfig. Defaults to its current-context.
+    context: ""
+  bootstrap:
+    # -- Let the operator apply the watched cluster's prerequisites itself on startup, instead
+    # of requiring them to be applied out of band. They are rendered into a ConfigMap and
+    # applied server-side before the controllers start.
+    # This needs the watched identity to be allowed to write CustomResourceDefinitions and
+    # admission webhook configurations.
+    enabled: false
+    # -- Include the CustomResourceDefinitions in the manifests the operator applies.
+    crds: true
+    # -- Include the admission webhook configurations in the manifests the operator applies.
+    # Requires `webhook.url`.
+    webhookConfiguration: true
+  # -- Path the bootstrap manifests ConfigMap is mounted at.
+  bootstrapMountPath: /etc/temporal-operator/bootstrap
+
+# -- TemporalTargetCluster resources to create, one per cluster the operator should be able to
+# create Temporal resources in. Each entry references a Secret holding that cluster's kubeconfig;
+# the Secret itself is not managed by this chart.
+# Only needed when the custom resources live somewhere other than the cluster Temporal runs in.
+# For example:
+# ```yaml
+# targetClusters:
+#   - name: production
+#     kubeconfigSecretName: production-kubeconfig
+#     key: kubeconfig
+#     context: ""
+#     driftDetection: Watch
+#     resyncPeriod: ""
+# ```
+targetClusters: []
+
 # -- Image pull secrets for accessing private image repositories.
 imagePullSecrets: []
 # -- Domain for the cluster.
@@ -62,5 +137,6 @@ kubernetesClusterDomain: cluster.local
 # -- Install and manage the CustomResourceDefinitions with this chart.
 # When true, Helm creates the CRDs on install and updates them on upgrade.
 # The CRDs carry `helm.sh/resource-policy: keep`, so they survive `helm uninstall`.
-# Set to false if you manage the CRDs out-of-band.
+# Set to false if you manage the CRDs out-of-band, and when `remote.enabled` is true, as the
+# CRDs then belong to the watched cluster rather than this one.
 installCRDs: true

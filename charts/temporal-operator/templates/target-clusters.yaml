@@ -1,0 +1,31 @@
+{{- /*
+Target clusters the operator can create Temporal resources in.
+
+Only needed when the custom resources don't live in the cluster Temporal runs in. A TemporalCluster
+that names none of these is reconciled into the cluster the operator watches, as it always was.
+*/ -}}
+{{- range .Values.targetClusters }}
+---
+apiVersion: temporal.io/v1beta1
+kind: TemporalTargetCluster
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace | default $.Release.Namespace }}
+  labels:
+  {{- include "temporal-operator.labels" $ | nindent 4 }}
+spec:
+  kubeconfigSecretRef:
+    name: {{ required "each entry of targetClusters needs a kubeconfigSecretName" .kubeconfigSecretName }}
+  {{- with .key }}
+  key: {{ . }}
+  {{- end }}
+  {{- with .context }}
+  context: {{ . }}
+  {{- end }}
+  {{- with .driftDetection }}
+  driftDetection: {{ . }}
+  {{- end }}
+  {{- with .resyncPeriod }}
+  resyncPeriod: {{ . }}
+  {{- end }}
+{{- end }}

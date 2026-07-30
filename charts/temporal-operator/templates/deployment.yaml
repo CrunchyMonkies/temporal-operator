@@ -21,8 +21,27 @@ spec:
     spec:
       containers:
       - args: {{- toYaml .Values.manager.args | nindent 8 }}
+        {{- if .Values.manager.leaderElectionNamespace }}
+        - --leader-election-namespace={{ .Values.manager.leaderElectionNamespace }}
+        {{- end }}
+        {{- if .Values.remote.enabled }}
+        {{- /* --kubeconfig is registered by controller-runtime itself. */}}
+        - --kubeconfig={{ include "temporal-operator.kubeconfigPath" . }}
+        {{- if .Values.remote.kubeconfig.context }}
+        - --kubeconfig-context={{ .Values.remote.kubeconfig.context }}
+        {{- end }}
+        {{- if .Values.remote.bootstrap.enabled }}
+        - --bootstrap-manifests-dir={{ .Values.remote.bootstrapMountPath }}
+        {{- end }}
+        {{- end }}
         command:
         - /manager
+        {{- with .Values.manager.env }}
+        env: {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.manager.envFrom }}
+        envFrom: {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: {{ .Values.manager.image.repository }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}
         livenessProbe:
           httpGet:
@@ -51,6 +70,19 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
+        {{- if .Values.remote.enabled }}
+        - mountPath: {{ .Values.remote.kubeconfig.mountPath }}
+          name: watched-cluster-kubeconfig
+          readOnly: true
+        {{- if .Values.remote.bootstrap.enabled }}
+        - mountPath: {{ .Values.remote.bootstrapMountPath }}
+          name: bootstrap-manifests
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- with .Values.manager.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       imagePullSecrets: {{ .Values.imagePullSecrets | default list | toJson }}
       securityContext:
         runAsNonRoot: true
@@ -65,5 +97,19 @@ spec:
         secret:
           defaultMode: 420
           secretName: webhook-server-cert
+      {{- if .Values.remote.enabled }}
+      - name: watched-cluster-kubeconfig
+        secret:
+          defaultMode: 420
+          secretName: {{ .Values.remote.kubeconfig.secretName }}
+      {{- if .Values.remote.bootstrap.enabled }}
+      - name: bootstrap-manifests
+        configMap:
+          name: {{ include "temporal-operator.fullname" . }}-bootstrap-manifests
+      {{- end }}
+      {{- end }}
+      {{- with .Values.manager.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
       nodeSelector: {{ toYaml .Values.manager.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml .Values.manager.tolerations | nindent 8 }}

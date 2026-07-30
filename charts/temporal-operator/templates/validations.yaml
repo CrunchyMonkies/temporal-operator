@@ -1,0 +1,24 @@
+{{- /*
+Combinations that cannot work, failed here rather than at runtime.
+
+Renders nothing; Helm drops manifests that are empty.
+*/ -}}
+{{- if .Values.remote.enabled }}
+
+{{- if not .Values.remote.kubeconfig.secretName }}
+{{- fail "remote.enabled requires remote.kubeconfig.secretName: the operator needs credentials for the cluster it watches." }}
+{{- end }}
+
+{{- if .Values.installCRDs }}
+{{- fail "remote.enabled requires installCRDs=false: the CustomResourceDefinitions belong to the watched cluster, not the one this release installs into. Use remote.bootstrap.crds=true, or apply them out of band." }}
+{{- end }}
+
+{{- if and (has "--leader-elect" .Values.manager.args) (not .Values.manager.leaderElectionNamespace) }}
+{{- fail "remote.enabled with --leader-elect requires manager.leaderElectionNamespace: the lease is written to the watched cluster, whose namespaces are unrelated to this release's." }}
+{{- end }}
+
+{{- if and .Values.remote.bootstrap.enabled .Values.remote.bootstrap.webhookConfiguration (not .Values.webhook.url) }}
+{{- fail "bootstrapping the admission webhook configurations requires webhook.url: the watched cluster's API server cannot resolve a Service in this one." }}
+{{- end }}
+
+{{- end }}

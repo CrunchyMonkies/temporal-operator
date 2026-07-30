@@ -1,0 +1,26 @@
+{{- /*
+The prerequisites of the cluster the operator watches, for the operator to apply itself on startup.
+
+This release is installed against the cluster hosting the operator, so in remote mode it cannot
+create anything in the watched one. Handing the manifests to the operator closes that gap: it has
+credentials for the watched cluster, and applies them before its controllers start.
+*/ -}}
+{{- if and .Values.remote.enabled .Values.remote.bootstrap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "temporal-operator.fullname" . }}-bootstrap-manifests
+  labels:
+  {{- include "temporal-operator.labels" . | nindent 4 }}
+data:
+  {{- if .Values.remote.bootstrap.crds }}
+  crds.yaml: |
+{{ .Files.Get "files/crds/temporal-operator.crds.yaml" | indent 4 }}
+  {{- end }}
+  {{- if .Values.remote.bootstrap.webhookConfiguration }}
+  webhook-configurations.yaml: |
+{{ include "temporal-operator.mutatingWebhookConfiguration" . | indent 4 }}
+    ---
+{{ include "temporal-operator.validatingWebhookConfiguration" . | indent 4 }}
+  {{- end }}
+{{- end }}
