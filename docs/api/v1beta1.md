@@ -294,6 +294,39 @@ AuthorizationSpec
 <p>Authorization allows authorization configuration for the temporal cluster.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>targetClusterRef</code><br>
+<em>
+<a href="#temporal.io/v1beta1.ObjectReference">
+ObjectReference
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>TargetClusterRef references the TemporalTargetCluster this cluster&rsquo;s resources should be
+created in. Defaults to the cluster this resource itself lives in, which is the only
+possibility unless the operator has been configured for multi-cluster operation.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>operatorClientAddress</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>OperatorClientAddress overrides the &ldquo;host:port&rdquo; the operator connects to when it needs to
+talk to this cluster&rsquo;s frontend, which it does to reconcile TemporalNamespaces and
+TemporalSchedules. Set it when the operator can&rsquo;t resolve the frontend&rsquo;s in-cluster service
+DNS, pointing it at an address exposing the frontend instead.</p>
+<p>It has no effect on the address the temporal services themselves use, and none on the
+server name expected from the frontend&rsquo;s certificate when mTLS is enabled.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -2230,6 +2263,7 @@ set by external tools to store and retrieve arbitrary metadata.</p>
 <p>
 (<em>Appears on:</em>
 <a href="#temporal.io/v1beta1.TemporalClusterClientSpec">TemporalClusterClientSpec</a>, 
+<a href="#temporal.io/v1beta1.TemporalClusterSpec">TemporalClusterSpec</a>, 
 <a href="#temporal.io/v1beta1.TemporalNamespaceSpec">TemporalNamespaceSpec</a>, 
 <a href="#temporal.io/v1beta1.TemporalScheduleSpec">TemporalScheduleSpec</a>)
 </p>
@@ -4635,6 +4669,66 @@ Those overrides can be customized per service using spec.services.<serviceName>.
 </table>
 </div>
 </div>
+<h3 id="temporal.io/v1beta1.TargetClusterAvailableAPIs">TargetClusterAvailableAPIs
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalTargetClusterStatus">TemporalTargetClusterStatus</a>)
+</p>
+<p>TargetClusterAvailableAPIs reports which of the optional APIs the operator integrates with are
+served by a target cluster.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>certManager</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td>
+<code>istio</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td>
+<code>prometheusOperator</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.TargetClusterDriftDetection">TargetClusterDriftDetection
+(<code>string</code> alias)</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalTargetClusterSpec">TemporalTargetClusterSpec</a>)
+</p>
+<p>TargetClusterDriftDetection determines how the operator notices changes made to the resources
+it manages in a target cluster.</p>
 <h3 id="temporal.io/v1beta1.TemporalAdminToolsSpec">TemporalAdminToolsSpec
 </h3>
 <p>
@@ -5120,6 +5214,39 @@ AuthorizationSpec
 <td>
 <em>(Optional)</em>
 <p>Authorization allows authorization configuration for the temporal cluster.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>targetClusterRef</code><br>
+<em>
+<a href="#temporal.io/v1beta1.ObjectReference">
+ObjectReference
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>TargetClusterRef references the TemporalTargetCluster this cluster&rsquo;s resources should be
+created in. Defaults to the cluster this resource itself lives in, which is the only
+possibility unless the operator has been configured for multi-cluster operation.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>operatorClientAddress</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>OperatorClientAddress overrides the &ldquo;host:port&rdquo; the operator connects to when it needs to
+talk to this cluster&rsquo;s frontend, which it does to reconcile TemporalNamespaces and
+TemporalSchedules. Set it when the operator can&rsquo;t resolve the frontend&rsquo;s in-cluster service
+DNS, pointing it at an address exposing the frontend instead.</p>
+<p>It has no effect on the address the temporal services themselves use, and none on the
+server name expected from the frontend&rsquo;s certificate when mTLS is enabled.</p>
 </td>
 </tr>
 </tbody>
@@ -6085,6 +6212,283 @@ CRD is deleted.</p>
 </td>
 <td>
 <p>Conditions represent the latest available observations of the Schedule state.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.TemporalTargetCluster">TemporalTargetCluster
+</h3>
+<p>A TemporalTargetCluster is a kubernetes cluster, other than the one the operator watches, that
+the operator can create Temporal resources in. TemporalClusters, TemporalNamespaces and
+TemporalSchedules reference one by name to have their resources created there instead of
+alongside themselves.</p>
+<p>Resources created in a target cluster can&rsquo;t carry an owner reference back to the custom resource
+that asked for them, as that resource lives in another cluster and the target&rsquo;s garbage
+collector would delete them as orphaned. They are labelled instead, and cleaned up through a
+finalizer.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>metadata</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#objectmeta-v1-meta">
+Kubernetes meta/v1.ObjectMeta
+</a>
+</em>
+</td>
+<td>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td>
+<code>spec</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TemporalTargetClusterSpec">
+TemporalTargetClusterSpec
+</a>
+</em>
+</td>
+<td>
+<br/>
+<br/>
+<table>
+<tr>
+<td>
+<code>kubeconfigSecretRef</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#localobjectreference-v1-core">
+Kubernetes core/v1.LocalObjectReference
+</a>
+</em>
+</td>
+<td>
+<p>KubeconfigSecretRef references a Secret in the same namespace as this resource, holding a
+kubeconfig for the target cluster.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>key</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Key is the Secret key holding the kubeconfig.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>context</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Context selects a context from the kubeconfig.
+Defaults to the kubeconfig&rsquo;s current context if omitted.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>driftDetection</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TargetClusterDriftDetection">
+TargetClusterDriftDetection
+</a>
+</em>
+</td>
+<td>
+<p>DriftDetection determines how changes made to managed resources in this cluster are noticed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resyncPeriod</code><br>
+<em>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Duration">
+Kubernetes meta/v1.Duration
+</a>
+</em>
+</td>
+<td>
+<p>ResyncPeriod is how often managed resources are reconciled when DriftDetection is Resync.
+Defaults to 5m. Ignored when DriftDetection is Watch.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td>
+<code>status</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TemporalTargetClusterStatus">
+TemporalTargetClusterStatus
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.TemporalTargetClusterSpec">TemporalTargetClusterSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalTargetCluster">TemporalTargetCluster</a>)
+</p>
+<p>TemporalTargetClusterSpec defines the desired state of TemporalTargetCluster.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>kubeconfigSecretRef</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#localobjectreference-v1-core">
+Kubernetes core/v1.LocalObjectReference
+</a>
+</em>
+</td>
+<td>
+<p>KubeconfigSecretRef references a Secret in the same namespace as this resource, holding a
+kubeconfig for the target cluster.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>key</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Key is the Secret key holding the kubeconfig.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>context</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Context selects a context from the kubeconfig.
+Defaults to the kubeconfig&rsquo;s current context if omitted.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>driftDetection</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TargetClusterDriftDetection">
+TargetClusterDriftDetection
+</a>
+</em>
+</td>
+<td>
+<p>DriftDetection determines how changes made to managed resources in this cluster are noticed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resyncPeriod</code><br>
+<em>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Duration">
+Kubernetes meta/v1.Duration
+</a>
+</em>
+</td>
+<td>
+<p>ResyncPeriod is how often managed resources are reconciled when DriftDetection is Resync.
+Defaults to 5m. Ignored when DriftDetection is Watch.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.TemporalTargetClusterStatus">TemporalTargetClusterStatus
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalTargetCluster">TemporalTargetCluster</a>)
+</p>
+<p>TemporalTargetClusterStatus defines the observed state of TemporalTargetCluster.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>serverVersion</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ServerVersion is the kubernetes version reported by the target cluster.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>availableAPIs</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TargetClusterAvailableAPIs">
+TargetClusterAvailableAPIs
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>AvailableAPIs reports the optional APIs the operator detected in the target cluster. A
+TemporalCluster relying on one that isn&rsquo;t present there can&rsquo;t be reconciled.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>conditions</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#condition-v1-meta">
+[]Kubernetes meta/v1.Condition
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Conditions holds the current state of the connection to the target cluster.</p>
 </td>
 </tr>
 </tbody>

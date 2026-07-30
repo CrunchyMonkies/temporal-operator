@@ -1998,6 +1998,16 @@ spec:
                   format: int32
                   minimum: 1
                   type: integer
+                operatorClientAddress:
+                  description: |-
+                    OperatorClientAddress overrides the "host:port" the operator connects to when it needs to
+                    talk to this cluster's frontend, which it does to reconcile TemporalNamespaces and
+                    TemporalSchedules. Set it when the operator can't resolve the frontend's in-cluster service
+                    DNS, pointing it at an address exposing the frontend instead.
+
+                    It has no effect on the address the temporal services themselves use, and none on the
+                    server name expected from the frontend's certificate when mTLS is enabled.
+                  type: string
                 persistence:
                   description: Persistence defines temporal persistence configuration.
                   properties:
@@ -3966,6 +3976,21 @@ spec:
                               type: object
                           type: object
                       type: object
+                  type: object
+                targetClusterRef:
+                  description: |-
+                    TargetClusterRef references the TemporalTargetCluster this cluster's resources should be
+                    created in. Defaults to the cluster this resource itself lives in, which is the only
+                    possibility unless the operator has been configured for multi-cluster operation.
+                  properties:
+                    name:
+                      description: The name of the temporal object to reference.
+                      type: string
+                    namespace:
+                      description: |-
+                        The namespace of the temporal object to reference.
+                        Defaults to the namespace of the requested resource if omitted.
+                      type: string
                   type: object
                 ui:
                   description: UI allows configuration of the optional temporal web ui deployed alongside the cluster.

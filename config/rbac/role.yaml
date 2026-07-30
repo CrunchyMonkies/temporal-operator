@@ -120,6 +120,7 @@ rules:
   - temporalclusters
   - temporalnamespaces
   - temporalschedules
+  - temporaltargetclusters
   verbs:
   - create
   - delete
@@ -135,6 +136,7 @@ rules:
   - temporalclusters/finalizers
   - temporalnamespaces/finalizers
   - temporalschedules/finalizers
+  - temporaltargetclusters/finalizers
   verbs:
   - update
 - apiGroups:
@@ -144,6 +146,7 @@ rules:
   - temporalclusters/status
   - temporalnamespaces/status
   - temporalschedules/status
+  - temporaltargetclusters/status
   verbs:
   - get
   - patch
