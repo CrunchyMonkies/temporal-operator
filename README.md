@@ -98,6 +98,17 @@ prevents Kubernetes from cascade-deleting your `TemporalCluster` resources). Set
 > ```
 > Fresh installs need nothing.
 
+### Managing a Temporal deployment in another cluster
+
+The operator can manage a Temporal deployment running in a different Kubernetes cluster, with the
+custom resources living either beside that deployment or beside the operator. Requirements, the
+target cluster's RBAC and kubeconfig preparation, the Helm values for each placement, and the
+cross-cluster ownership and deletion semantics are documented in
+[Managing a Temporal deployment in another cluster](docs/operations/remote-cluster.md).
+
+Nothing is needed for a single-cluster install: a `TemporalCluster` that names no target cluster is
+reconciled into the cluster the operator watches, as it always was.
+
 ### Pull the container image directly
 
 ```bash
