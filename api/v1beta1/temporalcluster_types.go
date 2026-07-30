@@ -1086,6 +1086,20 @@ type TemporalClusterSpec struct {
 	// Authorization allows authorization configuration for the temporal cluster.
 	// +optional
 	Authorization *AuthorizationSpec `json:"authorization,omitempty"`
+	// TargetClusterRef references the TemporalTargetCluster this cluster's resources should be
+	// created in. Defaults to the cluster this resource itself lives in, which is the only
+	// possibility unless the operator has been configured for multi-cluster operation.
+	// +optional
+	TargetClusterRef *ObjectReference `json:"targetClusterRef,omitempty"`
+	// OperatorClientAddress overrides the "host:port" the operator connects to when it needs to
+	// talk to this cluster's frontend, which it does to reconcile TemporalNamespaces and
+	// TemporalSchedules. Set it when the operator can't resolve the frontend's in-cluster service
+	// DNS, pointing it at an address exposing the frontend instead.
+	//
+	// It has no effect on the address the temporal services themselves use, and none on the
+	// server name expected from the frontend's certificate when mTLS is enabled.
+	// +optional
+	OperatorClientAddress string `json:"operatorClientAddress,omitempty"`
 }
 
 // ServiceStatus reports a service status.
@@ -1213,6 +1227,18 @@ func (c *TemporalCluster) GetPublicClientAddress() string {
 		return fmt.Sprintf("%s.%s:%d", c.ChildResourceName("internal-frontend-headless"), c.GetNamespace(), *c.Spec.Services.InternalFrontend.Port)
 	}
 	return fmt.Sprintf("%s.%s:%d", c.ChildResourceName("frontend"), c.GetNamespace(), *c.Spec.Services.Frontend.Port)
+}
+
+// GetOperatorClientAddress returns the "host:port" the operator should connect to when talking to
+// the cluster's frontend.
+//
+// This is deliberately not GetPublicClientAddress: that one is also the address the temporal
+// services are configured with, and they resolve it from inside the cluster hosting them.
+func (c *TemporalCluster) GetOperatorClientAddress() string {
+	if c.Spec.OperatorClientAddress != "" {
+		return c.Spec.OperatorClientAddress
+	}
+	return c.GetPublicClientAddress()
 }
 
 // IsReady returns true if the TemporalCluster's conditions reports it ready.

@@ -35,6 +35,13 @@ const (
 	TemporalNamespaceCreatedReason string = "TemporalNamespaceCreated"
 	// TemporalScheduleCreatedReason signals a successful schedule creation.
 	TemporalScheduleCreatedReason string = "TemporalScheduleCreated"
+	// TargetClusterReachableReason signals the operator connected to a target cluster.
+	TargetClusterReachableReason string = "TargetClusterReachable"
+	// TargetClusterUnreachableReason signals the operator could not connect to a target cluster.
+	TargetClusterUnreachableReason string = "TargetClusterUnreachable"
+	// TargetClusterResolutionFailedReason signals an error while resolving the target cluster a
+	// resource references.
+	TargetClusterResolutionFailedReason string = "TargetClusterResolutionFailed"
 )
 
 // SetTemporalClusterReconcileSuccess sets the ReconcileSuccessCondition status for a temporal cluster.
@@ -106,6 +113,19 @@ func SetTemporalScheduleReady(s *TemporalSchedule, status metav1.ConditionStatus
 		Message:            message,
 	}
 	apimeta.SetStatusCondition(&s.Status.Conditions, condition)
+}
+
+// SetTemporalTargetClusterReady sets the ReadyCondition status for a temporal target cluster.
+func SetTemporalTargetClusterReady(c *TemporalTargetCluster, status metav1.ConditionStatus, reason, message string) {
+	condition := metav1.Condition{
+		Type:               ReadyCondition,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: c.GetGeneration(),
+		Reason:             reason,
+		Status:             status,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&c.Status.Conditions, condition)
 }
 
 // SetTemporalNamespaceReconcileSuccess sets the ReconcileSuccessCondition status for a temporal namespace.

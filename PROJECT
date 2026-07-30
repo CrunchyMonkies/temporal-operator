@@ -37,6 +37,14 @@ resources:
     namespaced: true
   controller: true
   domain: temporal.io
+  kind: TemporalTargetCluster
+  path: github.com/alexandrevilain/temporal-operator/api/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: temporal.io
   kind: TemporalWorkerProcess
   path: github.com/alexandrevilain/temporal-operator/api/v1beta1
   version: v1beta1
