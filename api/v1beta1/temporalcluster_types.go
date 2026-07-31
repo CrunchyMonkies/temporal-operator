@@ -274,7 +274,7 @@ type SQLPasswordCommandSpec struct {
 	// Timeout is the maximum duration to wait for the command to complete.
 	// Defaults to 30 seconds if unset.
 	// +optional
-	Timeout metav1.Duration `json:"timeout,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
 // DatastoreTLSSpec contains datastore TLS connections specifications.
