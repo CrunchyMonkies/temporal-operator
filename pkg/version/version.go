@@ -48,15 +48,15 @@ var (
 		// v1.30.0 is retracted; use v1.30.1+.
 		MustNewVersionFromString("1.30.0"),
 	}
-	V1_18_0 = MustNewVersionFromString("1.18.0") //nolint:stylecheck,revive
-	V1_20_0 = MustNewVersionFromString("1.20.0") //nolint:stylecheck,revive
-	V1_21_0 = MustNewVersionFromString("1.21.0") //nolint:stylecheck,revive
-	V1_22_0 = MustNewVersionFromString("1.22.0") //nolint:stylecheck,revive
-	V1_23_0 = MustNewVersionFromString("1.23.0") //nolint:stylecheck,revive
-	V1_24_0 = MustNewVersionFromString("1.24.0") //nolint:stylecheck,revive
-	V1_25_0 = MustNewVersionFromString("1.25.0") //nolint:stylecheck,revive
-	V1_30_0 = MustNewVersionFromString("1.30.0") //nolint:stylecheck,revive
-	V1_31_0 = MustNewVersionFromString("1.31.0") //nolint:stylecheck,revive
+	V1_18_0 = MustNewVersionFromString("1.18.0") //nolint:staticcheck,revive
+	V1_20_0 = MustNewVersionFromString("1.20.0") //nolint:staticcheck,revive
+	V1_21_0 = MustNewVersionFromString("1.21.0") //nolint:staticcheck,revive
+	V1_22_0 = MustNewVersionFromString("1.22.0") //nolint:staticcheck,revive
+	V1_23_0 = MustNewVersionFromString("1.23.0") //nolint:staticcheck,revive
+	V1_24_0 = MustNewVersionFromString("1.24.0") //nolint:staticcheck,revive
+	V1_25_0 = MustNewVersionFromString("1.25.0") //nolint:staticcheck,revive
+	V1_30_0 = MustNewVersionFromString("1.30.0") //nolint:staticcheck,revive
+	V1_31_0 = MustNewVersionFromString("1.31.0") //nolint:staticcheck,revive
 )
 
 // Version is a wrapper around semver.Version which supports correct

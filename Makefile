@@ -219,7 +219,7 @@ OPERATOR_SDK_VERSION ?= 1.37.0
 CONTROLLER_TOOLS_VERSION ?=  v0.16.3
 GO_LICENSER_VERSION ?= v0.4.0
 GEN_CRD_API_REFERENCE_DOCS_VERSION ?= 3f29e6853552dcf08a8e846b1225f275ed0f3e3b
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.12.2
 YQ_VERSION ?= v4.30.6
 KIND_WITH_REGISTRY_VERSION ?= 0.17.0
 HELM_DOCS_VERSION ?= v1.12.0
@@ -252,7 +252,7 @@ $(OPERATOR_SDK): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT)
 $(GOLANGCI_LINT): $(LOCALBIN)
 	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_LINT_VERSION) || \
-	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: go-licenser
 go-licenser: $(GO_LICENSER)

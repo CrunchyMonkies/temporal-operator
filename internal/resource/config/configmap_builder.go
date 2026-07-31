@@ -49,6 +49,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+// bindAllAddresses is the address services bind on when they should accept
+// connections on every interface in the pod.
+const bindAllAddresses = "0.0.0.0"
+
 var _ resource.Builder = (*ConfigmapBuilder)(nil)
 
 type ConfigmapBuilder struct {
@@ -274,7 +278,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 				GRPCPort:        int(*b.instance.Spec.Services.Frontend.Port),
 				MembershipPort:  int(*b.instance.Spec.Services.Frontend.MembershipPort),
 				BindOnLocalHost: false,
-				BindOnIP:        "0.0.0.0",
+				BindOnIP:        bindAllAddresses,
 			},
 		},
 		string(primitives.HistoryService): {
@@ -282,7 +286,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 				GRPCPort:        int(*b.instance.Spec.Services.History.Port),
 				MembershipPort:  int(*b.instance.Spec.Services.History.MembershipPort),
 				BindOnLocalHost: false,
-				BindOnIP:        "0.0.0.0",
+				BindOnIP:        bindAllAddresses,
 			},
 		},
 		string(primitives.MatchingService): {
@@ -290,7 +294,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 				GRPCPort:        int(*b.instance.Spec.Services.Matching.Port),
 				MembershipPort:  int(*b.instance.Spec.Services.Matching.MembershipPort),
 				BindOnLocalHost: false,
-				BindOnIP:        "0.0.0.0",
+				BindOnIP:        bindAllAddresses,
 			},
 		},
 		string(primitives.WorkerService): {
@@ -298,7 +302,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 				GRPCPort:        int(*b.instance.Spec.Services.Worker.Port),
 				MembershipPort:  int(*b.instance.Spec.Services.Worker.MembershipPort),
 				BindOnLocalHost: false,
-				BindOnIP:        "0.0.0.0",
+				BindOnIP:        bindAllAddresses,
 			},
 		},
 	}
@@ -311,7 +315,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 					MembershipPort:  int(*b.instance.Spec.Services.InternalFrontend.MembershipPort),
 					HTTPPort:        int(*b.instance.Spec.Services.InternalFrontend.HTTPPort),
 					BindOnLocalHost: false,
-					BindOnIP:        "0.0.0.0",
+					BindOnIP:        bindAllAddresses,
 				},
 			}
 		}
