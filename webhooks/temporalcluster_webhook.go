@@ -30,7 +30,6 @@ import (
 	enumsspb "go.temporal.io/server/api/enums/v1"
 	"go.temporal.io/server/common/primitives"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
@@ -42,14 +41,6 @@ import (
 // and set default fields values for TemporalCluster objects.
 type TemporalClusterWebhook struct {
 	AvailableAPIs *discovery.AvailableAPIs
-}
-
-func (w *TemporalClusterWebhook) getClusterFromRequest(obj runtime.Object) (*v1beta1.TemporalCluster, error) {
-	cluster, ok := obj.(*v1beta1.TemporalCluster)
-	if !ok {
-		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected an TemporalCluster but got a %T", obj))
-	}
-	return cluster, nil
 }
 
 func (w *TemporalClusterWebhook) aggregateClusterErrors(cluster *v1beta1.TemporalCluster, errs field.ErrorList) error {
@@ -65,12 +56,7 @@ func (w *TemporalClusterWebhook) aggregateClusterErrors(cluster *v1beta1.Tempora
 }
 
 // Default ensures empty fields have their default value.
-func (w *TemporalClusterWebhook) Default(_ context.Context, obj runtime.Object) error {
-	cluster, err := w.getClusterFromRequest(obj)
-	if err != nil {
-		return err
-	}
-
+func (w *TemporalClusterWebhook) Default(_ context.Context, cluster *v1beta1.TemporalCluster) error {
 	if cluster.Spec.Metrics.IsEnabled() {
 		if cluster.Spec.Metrics.Prometheus != nil {
 			// If the user has set the deprecated ListenAddress field and not the new ListenPort,
@@ -389,12 +375,7 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 }
 
 // ValidateCreate ensures the user is creating a consistent temporal cluster.
-func (w *TemporalClusterWebhook) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	cluster, err := w.getClusterFromRequest(obj)
-	if err != nil {
-		return nil, err
-	}
-
+func (w *TemporalClusterWebhook) ValidateCreate(_ context.Context, cluster *v1beta1.TemporalCluster) (admission.Warnings, error) {
 	warns, errs := w.validateCluster(cluster)
 
 	return warns, w.aggregateClusterErrors(cluster, errs)
@@ -402,17 +383,7 @@ func (w *TemporalClusterWebhook) ValidateCreate(_ context.Context, obj runtime.O
 
 // ValidateUpdate validates TemporalCluster updates.
 // It mainly check for sequential version upgrades.
-func (w *TemporalClusterWebhook) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	oldCluster, err := w.getClusterFromRequest(oldObj)
-	if err != nil {
-		return nil, err
-	}
-
-	newCluster, err := w.getClusterFromRequest(newObj)
-	if err != nil {
-		return nil, err
-	}
-
+func (w *TemporalClusterWebhook) ValidateUpdate(_ context.Context, oldCluster, newCluster *v1beta1.TemporalCluster) (admission.Warnings, error) {
 	warns, errs := w.validateCluster(newCluster)
 
 	// Ensure user is doing a sequential version upgrade.
@@ -447,14 +418,13 @@ func (w *TemporalClusterWebhook) ValidateUpdate(_ context.Context, oldObj, newOb
 }
 
 // ValidateDelete does nothing.
-func (w *TemporalClusterWebhook) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (w *TemporalClusterWebhook) ValidateDelete(_ context.Context, _ *v1beta1.TemporalCluster) (admission.Warnings, error) {
 	// No delete validation needed.
 	return nil, nil
 }
 
 func (w *TemporalClusterWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&v1beta1.TemporalCluster{}).
+	return ctrl.NewWebhookManagedBy(mgr, &v1beta1.TemporalCluster{}).
 		WithDefaulter(w).
 		WithValidator(w).
 		Complete()
