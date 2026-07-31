@@ -38,7 +38,14 @@ var (
 		MustNewVersionFromString("1.24.0"),
 		// v1.27.0 is reported as broken, see: https://github.com/temporalio/temporal/releases/tag/v1.27.0
 		MustNewVersionFromString("1.27.0"),
-		// v1.30.0 has no published GitHub release (silently skipped upstream); use v1.30.1+.
+		// The releases below are retracted by upstream's own go.mod, see the
+		// retract block in https://github.com/temporalio/temporal/blob/v1.31.2/go.mod
+		// None of them has a published GitHub release or container image.
+		// v1.26.0 was "published accidentally"; use v1.26.2+.
+		MustNewVersionFromString("1.26.0"),
+		// v1.26.1 "contains retractions only"; use v1.26.2+.
+		MustNewVersionFromString("1.26.1"),
+		// v1.30.0 is retracted; use v1.30.1+.
 		MustNewVersionFromString("1.30.0"),
 	}
 	V1_18_0 = MustNewVersionFromString("1.18.0") //nolint:stylecheck,revive
