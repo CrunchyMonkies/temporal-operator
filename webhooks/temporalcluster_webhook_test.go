@@ -28,14 +28,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 )
 
 func TestDefault(t *testing.T) {
 	tests := map[string]struct {
-		initialObject  runtime.Object
-		expectedObject runtime.Object
+		initialObject  *v1beta1.TemporalCluster
+		expectedObject *v1beta1.TemporalCluster
 		expectedErr    string
 	}{
 		"default fields": {
@@ -45,7 +44,7 @@ func TestDefault(t *testing.T) {
 					Name: "fake",
 				},
 			},
-			expectedObject: func() runtime.Object {
+			expectedObject: func() *v1beta1.TemporalCluster {
 				c := &v1beta1.TemporalCluster{
 					TypeMeta: v1beta1.TemporalClusterTypeMeta,
 					ObjectMeta: metav1.ObjectMeta{
@@ -72,7 +71,7 @@ func TestDefault(t *testing.T) {
 					},
 				},
 			},
-			expectedObject: func() runtime.Object {
+			expectedObject: func() *v1beta1.TemporalCluster {
 				c := &v1beta1.TemporalCluster{
 					TypeMeta: v1beta1.TemporalClusterTypeMeta,
 					ObjectMeta: metav1.ObjectMeta{
@@ -145,7 +144,7 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	tests := map[string]struct {
-		object      runtime.Object
+		object      *v1beta1.TemporalCluster
 		wh          *webhooks.TemporalClusterWebhook
 		expectedErr string
 	}{
@@ -357,8 +356,8 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	tests := map[string]struct {
-		oldlObject  runtime.Object
-		newObject   runtime.Object
+		oldlObject  *v1beta1.TemporalCluster
+		newObject   *v1beta1.TemporalCluster
 		expectedErr string
 	}{
 		"allowed upgrade": {
