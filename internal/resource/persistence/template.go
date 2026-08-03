@@ -99,15 +99,19 @@ var (
 		// setupESVisibilityTool targets Temporal >= 1.30, whose admin-tools image
 		// dropped curl/jq and ships temporal-elasticsearch-tool instead. setup-schema
 		// applies the (embedded) cluster settings + index template; create-index
-		// creates the visibility index.
+		// creates the visibility index (idempotent: the tool treats
+		// resource_already_exists_exception as success, so the job is re-runnable).
+		//
+		// The steps are chained with && rather than guarded by "set -e": the
+		// shared "scripts" footer must still run when a step fails, otherwise the
+		// service-mesh sidecar is never told to shut down and the Job pod stays
+		// Running forever instead of failing. && gives the same fail-fast
+		// behaviour while leaving $? for the footer to propagate.
 		setupESVisibilityTool: dedent.Dedent(`
             #!/bin/sh
-            set -eu
-            {{ .Tool }} {{ .ConnectionArgs }} setup-schema
-            {{ .Tool }} {{ .ConnectionArgs }} create-index --index "{{ .Indices.Visibility }}"
-            {{ if .Indices.SecondaryVisibility }}
-            {{ .Tool }} {{ .ConnectionArgs }} create-index --index "{{ .Indices.SecondaryVisibility }}"
-            {{ end }}
+            {{ .Tool }} {{ .ConnectionArgs }} setup-schema && \
+            {{ .Tool }} {{ .ConnectionArgs }} create-index --index "{{ .Indices.Visibility }}"{{ if .Indices.SecondaryVisibility }} && \
+            {{ .Tool }} {{ .ConnectionArgs }} create-index --index "{{ .Indices.SecondaryVisibility }}"{{ end }}
             {{ template "scripts" . }}
         `),
 		updateESVisibility: dedent.Dedent(`
@@ -404,13 +408,12 @@ var (
 		// updateESVisibilityTool targets Temporal >= 1.30. update-schema upgrades the
 		// index template to the version embedded in the tool, and the per-index
 		// mappings when --index is given (covers all built-in search attributes).
+		// Chained with && rather than "set -e" so the shared "scripts" footer still
+		// runs on failure; see setupESVisibilityTool.
 		updateESVisibilityTool: dedent.Dedent(`
             #!/bin/sh
-            set -eu
-            {{ .Tool }} {{ .ConnectionArgs }} update-schema --index "{{ .Indices.Visibility }}"
-            {{ if .Indices.SecondaryVisibility }}
-            {{ .Tool }} {{ .ConnectionArgs }} update-schema --index "{{ .Indices.SecondaryVisibility }}"
-            {{ end }}
+            {{ .Tool }} {{ .ConnectionArgs }} update-schema --index "{{ .Indices.Visibility }}"{{ if .Indices.SecondaryVisibility }} && \
+            {{ .Tool }} {{ .ConnectionArgs }} update-schema --index "{{ .Indices.SecondaryVisibility }}"{{ end }}
             {{ template "scripts" . }}
         `),
 	}
@@ -470,16 +473,26 @@ type (
 	}
 )
 
+// proxyShutdownScriptsContent tells the service-mesh sidecar to quit once the
+// script's real work is done, so the Job pod can terminate.
+//
+// The exit status is captured into $x *before* the shutdown call, so the
+// shutdown command's own status never masks the script's. No "|| true" is
+// needed for that, and adding one only hides a genuinely unreachable proxy —
+// the wget and curl branches deliberately behave identically here.
+//
+// wget is BusyBox wget (verified: admin-tools 1.31.1 ships BusyBox v1.37.0 and
+// no curl at all); it supports --post-data.
 var proxyShutdownScriptsContent = dedent.Dedent(`
         {{- define "scripts" -}}
         {{- if eq .MTLSProvider "linkerd" -}}
         x=$?
-        {{ if .UseWget }}wget -q -O- --post-data='' http://localhost:4191/shutdown || true{{ else }}curl -X POST http://localhost:4191/shutdown{{ end }}
+        {{ if .UseWget }}wget -q -O- --post-data='' http://localhost:4191/shutdown{{ else }}curl -X POST http://localhost:4191/shutdown{{ end }}
         exit $x
         {{- end -}}
         {{- if eq .MTLSProvider "istio" -}}
         x=$?
-        {{ if .UseWget }}wget -q -O- --post-data='' http://127.0.0.1:15020/quitquitquit || true{{ else }}curl -sf -XPOST http://127.0.0.1:15020/quitquitquit{{ end }}
+        {{ if .UseWget }}wget -q -O- --post-data='' http://127.0.0.1:15020/quitquitquit{{ else }}curl -sf -XPOST http://127.0.0.1:15020/quitquitquit{{ end }}
         exit $x
         {{- end -}}
         {{- end -}}
