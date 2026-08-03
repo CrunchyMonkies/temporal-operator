@@ -145,3 +145,109 @@ func TestESVisibility_Curl_Pre130(t *testing.T) {
 	assert.Contains(t, setup, "_template")
 	assert.NotContains(t, setup, "temporal-elasticsearch-tool")
 }
+
+// TestESVisibility_EmptyUsername_NoBareUserFlag guards a silent-failure mode.
+//
+// argsMapToString renders an empty value as a bare "--user", and the tool's
+// flag parser (urfave/cli v1 over the stdlib flag package) then takes the
+// following token as that flag's value. For the setup script that token is the
+// "setup-schema" subcommand itself, so the tool finds no command at all, prints
+// its help and exits 0 — the schema job is recorded as successful while neither
+// the index template nor the visibility index was ever created.
+//
+// An empty username is what an auth-less Elasticsearch needs and the CRD allows
+// it (required, but with no minimum length), so this is reachable.
+func TestESVisibility_EmptyUsername_NoBareUserFlag(t *testing.T) {
+	b := esBuilder("1.30.5")
+	store := esVisibilityStore()
+	store.Elasticsearch.Username = ""
+	store.PasswordSecretRef = nil
+
+	setup, err := b.GetStoreSetupTemplate(store)
+	require.NoError(t, err)
+	assert.NotRegexp(t, `--user(\s|$)`, setup, "empty username must not render a bare --user flag")
+	assert.NotRegexp(t, `--password(\s|$)`, setup, "absent password must not render a bare --password flag")
+	assert.Contains(t, setup, "setup-schema")
+
+	update, err := b.GetStoreUpdateTemplate(store, VisibilitySchema)
+	require.NoError(t, err)
+	assert.NotRegexp(t, `--user(\s|$)`, update)
+}
+
+// TestSQLAndCassandraArgs_EmptyUser_NoBareUserFlag covers the same rendering
+// hazard on the other two datastore families.
+func TestSQLAndCassandraArgs_EmptyUser_NoBareUserFlag(t *testing.T) {
+	b := &SchemaScriptsConfigmapBuilder{}
+
+	sqlArgs, err := b.getSQLArgs(&v1beta1.DatastoreSpec{
+		Name: "default",
+		SQL: &v1beta1.SQLSpec{
+			User:         "",
+			PluginName:   "postgres12",
+			DatabaseName: "temporal",
+			ConnectAddr:  "postgres:5432",
+		},
+	})
+	require.NoError(t, err)
+	assert.NotRegexp(t, `--user(\s|$)`, b.argsMapToString(sqlArgs))
+
+	cassandraArgs := b.getCassandraArgs(&v1beta1.DatastoreSpec{
+		Name:      "default",
+		Cassandra: &v1beta1.CassandraSpec{Hosts: []string{"cassandra"}, Port: 9042, User: "", Keyspace: "temporal"},
+	})
+	assert.NotRegexp(t, `--user(\s|$)`, b.argsMapToString(cassandraArgs))
+}
+
+// TestGetStoreTool_ElasticsearchPre130 asserts the empty sentinel is preserved
+// below 1.30. temporal-elasticsearch-tool does not exist in those admin-tools
+// images, so a caller that reaches getStoreTool without checking the version
+// must not be handed a binary name that cannot be executed.
+func TestGetStoreTool_ElasticsearchPre130(t *testing.T) {
+	assert.Empty(t, esBuilder("1.29.7").getStoreTool(v1beta1.ElasticsearchDatastore))
+	assert.Equal(t, "temporal-elasticsearch-tool", esBuilder("1.30.5").getStoreTool(v1beta1.ElasticsearchDatastore))
+}
+
+// TestESVisibility_Tool_ShutdownFooterReachableOnFailure asserts the generated
+// script cannot abort before the service-mesh shutdown footer.
+//
+// With "set -e", a failing temporal-elasticsearch-tool exits the script
+// immediately and the footer never posts to the linkerd proxy's /shutdown. The
+// sidecar then keeps the Job pod Running indefinitely rather than letting it
+// fail and retry, and persistence reconciliation blocks on that job forever.
+func TestESVisibility_Tool_ShutdownFooterReachableOnFailure(t *testing.T) {
+	b := esBuilder("1.30.5")
+	b.instance.Spec.MTLS = &v1beta1.MTLSSpec{Provider: v1beta1.LinkerdMTLSProvider}
+	store := esVisibilityStore()
+
+	for name, script := range map[string]func() (string, error){
+		"setup":  func() (string, error) { return b.GetStoreSetupTemplate(store) },
+		"update": func() (string, error) { return b.GetStoreUpdateTemplate(store, VisibilitySchema) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			rendered, err := script()
+			require.NoError(t, err)
+
+			assert.NotRegexp(t, `(?m)^\s*set -e`, rendered,
+				"set -e would skip the sidecar shutdown footer when a step fails")
+			assert.Contains(t, rendered, "localhost:4191/shutdown", "shutdown footer must be present")
+			assert.Contains(t, rendered, "exit $x", "the tool's exit status must still be propagated")
+			// The wget call must not swallow its own status either: both mesh
+			// providers behave identically here.
+			assert.NotContains(t, rendered, "|| true")
+		})
+	}
+}
+
+// TestESVisibility_Tool_StepsFailFast asserts the steps are chained so a failed
+// setup-schema does not let create-index run (and report success) anyway.
+func TestESVisibility_Tool_StepsFailFast(t *testing.T) {
+	b := esBuilder("1.30.5")
+	store := esVisibilityStore()
+	store.Elasticsearch.Indices.SecondaryVisibility = "temporal_visibility_v1_dev_secondary"
+
+	setup, err := b.GetStoreSetupTemplate(store)
+	require.NoError(t, err)
+	assert.Contains(t, setup, "setup-schema && \\")
+	assert.Contains(t, setup, `create-index --index "temporal_visibility_v1_dev" && \`)
+	assert.Contains(t, setup, `create-index --index "temporal_visibility_v1_dev_secondary"`)
+}
