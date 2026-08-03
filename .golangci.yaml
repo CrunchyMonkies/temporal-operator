@@ -46,9 +46,16 @@ linters:
     goconst:
       # Table-driven tests legitimately repeat short literals ("test", "secret",
       # "password") across cases; hoisting those into constants makes the tables
-      # harder to read, not easier. v1 did not report them, so this keeps the
-      # v2 migration signal-neutral rather than adding ~70 findings unrelated to
-      # any behaviour change.
+      # harder to read, not easier.
+      #
+      # This restores v1's signal rather than suppressing it. Evidence: the v1
+      # config carried no test exclusions at all (only zz_generated), and the
+      # lint job was green on upstream main 1398896 with v1.64.8 — while the
+      # files this would newly flag (internal/resource/persistence/utils_test.go,
+      # pkg/status/status_test.go, pkg/kubernetes/overrides_test.go, ...) all
+      # already existed at that commit. So v1's goconst was not reporting them,
+      # and without this setting the v2 migration would add ~70 findings that
+      # have nothing to do with any behaviour change.
       ignore-tests: true
     govet:
       disable:
