@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/Masterminds/semver/v3"
 )
@@ -64,6 +65,37 @@ var (
 // +kubebuilder:validation:Type=string
 type Version struct {
 	*semver.Version
+}
+
+// IsBrokenRelease reports whether v is one of the releases the operator refuses
+// to run.
+func IsBrokenRelease(v *Version) bool {
+	for _, broken := range ForbiddenBrokenReleases {
+		if v.Equal(broken.Version) {
+			return true
+		}
+	}
+	return false
+}
+
+// NextNonBrokenPatch returns the first patch release after v that is not itself
+// marked broken.
+//
+// Broken releases can be consecutive: v1.26.0 and v1.26.1 are both retracted
+// upstream. Suggesting a plain IncPatch would send users from 1.26.0 to 1.26.1,
+// which the webhook rejects in turn.
+func (v *Version) NextNonBrokenPatch() *Version {
+	candidate := v
+	// ForbiddenBrokenReleases is finite so this always terminates; the bound is
+	// only a guard against a future list that fails to advance.
+	for range len(ForbiddenBrokenReleases) + 1 {
+		next := candidate.IncPatch()
+		candidate = &Version{Version: &next}
+		if !IsBrokenRelease(candidate) {
+			break
+		}
+	}
+	return candidate
 }
 
 // Validate checks if the current version is in the supported temporal cluster
@@ -110,15 +142,39 @@ func (v Version) MarshalJSON() ([]byte, error) {
 
 // GreaterOrEqual returns whenever version is greater or equal than the provided version.
 func (v *Version) GreaterOrEqual(compare *Version) bool {
-	str := fmt.Sprintf(">= %s", compare.String())
-	c, _ := semver.NewConstraint(str)
-	return c.Check(v.Version)
+	return checkConstraint(v, ">= %s", compare)
 }
 
 // LessThan returns whenever version is less than the provided version.
 func (v *Version) LessThan(compare *Version) bool {
-	str := fmt.Sprintf("< %s", compare.String())
-	c, _ := semver.NewConstraint(str)
+	return checkConstraint(v, "< %s", compare)
+}
+
+// constraintCache memoizes compiled semver constraints, keyed by their textual
+// form.
+//
+// GreaterOrEqual and LessThan are called repeatedly during a single reconcile —
+// once per datastore, once per deployment builder, once per config section —
+// and nearly always against the same handful of package-level version
+// constants, so recompiling the identical constraint every time is pure waste.
+var constraintCache sync.Map
+
+func checkConstraint(v *Version, format string, compare *Version) bool {
+	expr := fmt.Sprintf(format, compare.String())
+
+	if cached, ok := constraintCache.Load(expr); ok {
+		return cached.(*semver.Constraints).Check(v.Version)
+	}
+
+	c, err := semver.NewConstraint(expr)
+	if err != nil {
+		// compare always renders as a valid semver, so this is unreachable.
+		// It is handled anyway because the previous code discarded the error
+		// and would have dereferenced a nil *Constraints if that ever changed.
+		return false
+	}
+
+	constraintCache.Store(expr, c)
 	return c.Check(v.Version)
 }
 
