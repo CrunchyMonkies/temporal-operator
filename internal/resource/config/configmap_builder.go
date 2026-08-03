@@ -484,7 +484,7 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 	}
 
 	configMap.Data = map[string]string{
-		"config_template.yaml": renderedConfig,
+		meta.ConfigFileName: renderedConfig,
 	}
 
 	if err := controllerutil.SetControllerReference(b.instance, configMap, b.scheme); err != nil {
