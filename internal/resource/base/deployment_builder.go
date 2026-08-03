@@ -133,7 +133,7 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 			},
 			corev1.EnvVar{
 				Name:  "TEMPORAL_SERVER_CONFIG_FILE_PATH",
-				Value: "/etc/temporal/config/config_template.yaml",
+				Value: meta.ConfigFilePath,
 			},
 		)
 	}
@@ -145,8 +145,8 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      "config",
-			MountPath: "/etc/temporal/config/config_template.yaml",
-			SubPath:   "config_template.yaml",
+			MountPath: meta.ConfigFilePath,
+			SubPath:   meta.ConfigFileName,
 		},
 	}
 
