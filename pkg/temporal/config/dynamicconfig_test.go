@@ -215,3 +215,55 @@ func TestDynamicConfigToYamlDynamicConfigNestedLargeInteger(t *testing.T) {
 	assert.Contains(t, string(out), "- 4194304")
 	assert.NotContains(t, string(out), "e+06")
 }
+
+// TestDynamicConfigToYamlDynamicConfigExponentInteger covers integers written in
+// exponent form. They are valid JSON but json.Number.Int64 cannot parse them, so
+// they used to fall through to float64 and be re-emitted as "1e+09" — the exact
+// scientific-notation output this normalisation exists to prevent, which
+// Temporal's file-based dynamic config client rejects for an int setting.
+func TestDynamicConfigToYamlDynamicConfigExponentInteger(t *testing.T) {
+	dc := &v1beta1.DynamicConfigSpec{
+		Values: map[string][]v1beta1.ConstrainedValue{
+			"limit.blobSize.error": {
+				{
+					Value: &apiextensionsv1.JSON{Raw: []byte(`1e9`)},
+				},
+			},
+		},
+	}
+
+	result, err := config.DynamicConfigToYamlDynamicConfig(dc)
+	require.NoError(t, err)
+
+	out, err := yaml.Marshal(result)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(out), "value: 1000000000")
+	assert.NotContains(t, string(out), "e+09")
+	// A quoted string would be rejected by Temporal just the same as scientific
+	// notation, so the value must not be rendered as text either.
+	assert.NotContains(t, string(out), `"1e9"`)
+}
+
+// TestDynamicConfigToYamlDynamicConfigInt64Value covers a value that exceeds a
+// 32-bit int. It must survive intact rather than wrapping, which is what the
+// previous unconditional int() conversion did on 32-bit builds.
+func TestDynamicConfigToYamlDynamicConfigInt64Value(t *testing.T) {
+	dc := &v1beta1.DynamicConfigSpec{
+		Values: map[string][]v1beta1.ConstrainedValue{
+			"limit.blobSize.error": {
+				{
+					Value: &apiextensionsv1.JSON{Raw: []byte(`5368709120`)},
+				},
+			},
+		},
+	}
+
+	result, err := config.DynamicConfigToYamlDynamicConfig(dc)
+	require.NoError(t, err)
+
+	out, err := yaml.Marshal(result)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(out), "value: 5368709120")
+}

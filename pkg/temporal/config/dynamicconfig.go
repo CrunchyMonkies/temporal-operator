@@ -20,6 +20,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 )
@@ -110,13 +111,7 @@ func constrainedValueToYamlConstrainedValue(cv *v1beta1.ConstrainedValue) (YamlC
 func normalizeJSONNumbers(value any) any {
 	switch v := value.(type) {
 	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return int(i)
-		}
-		if f, err := v.Float64(); err == nil {
-			return f
-		}
-		return v.String()
+		return normalizeJSONNumber(v)
 	case map[string]any:
 		for key, val := range v {
 			v[key] = normalizeJSONNumbers(val)
@@ -130,4 +125,43 @@ func normalizeJSONNumbers(value any) any {
 	default:
 		return value
 	}
+}
+
+// normalizeJSONNumber converts a single json.Number into the Go numeric type
+// that yaml.v3 round-trips without changing its textual form.
+func normalizeJSONNumber(n json.Number) any {
+	if i, err := n.Int64(); err == nil {
+		return narrowInt(i)
+	}
+
+	if f, err := n.Float64(); err == nil {
+		// Exponent notation such as 1e9 is valid JSON and is an integer, but
+		// json.Number.Int64 cannot parse it. Falling through to float64 here
+		// would make yaml.v3 write it back as "1e+09", which Temporal's
+		// file-based dynamic config client rejects for settings that expect an
+		// integer -- precisely the failure this normalisation exists to avoid.
+		// So integral values are converted back to an integer type. Note that
+		// returning n.String() instead would emit a quoted YAML string, which
+		// Temporal rejects just the same.
+		if f == math.Trunc(f) && f >= float64(math.MinInt64) && f < float64(math.MaxInt64) {
+			return narrowInt(int64(f))
+		}
+		return f
+	}
+
+	// Not representable as either (e.g. more precision than float64 holds).
+	// Keep the original text rather than silently losing digits.
+	return n.String()
+}
+
+// narrowInt returns i as an int when that is lossless, matching the type
+// yaml.v3 produces when it unmarshals the rendered config map back. Keeping the
+// types identical is what makes the reconciliation deep-equal comparison
+// stable. On platforms where int is 32 bits, values that do not fit stay int64
+// rather than silently wrapping to a different number.
+func narrowInt(i int64) any {
+	if int64(int(i)) == i {
+		return int(i)
+	}
+	return i
 }
