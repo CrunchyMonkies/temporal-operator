@@ -196,15 +196,15 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 	}
 
 	// Check that the user-specified version is not marked as broken.
-	for _, version := range version.ForbiddenBrokenReleases {
-		if cluster.Spec.Version.Equal(version.Version) {
-			errs = append(errs,
-				field.Forbidden(
-					field.NewPath("spec", "version"),
-					fmt.Sprintf("version %s is marked as broken by the operator, please upgrade to %s (if allowed)", cluster.Spec.Version.String(), cluster.Spec.Version.IncPatch().String()),
-				),
-			)
-		}
+	// The suggested version skips any release that is itself broken, so users
+	// are not sent from one rejected version straight to another.
+	if version.IsBrokenRelease(cluster.Spec.Version) {
+		errs = append(errs,
+			field.Forbidden(
+				field.NewPath("spec", "version"),
+				fmt.Sprintf("version %s is marked as broken by the operator, please upgrade to %s (if allowed)", cluster.Spec.Version.String(), cluster.Spec.Version.NextNonBrokenPatch().String()),
+			),
+		)
 	}
 
 	// Check new features introduced in cluster version >= 1.20 are not enabled for older version.
@@ -311,6 +311,17 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 				"command is required when passwordCommand is set.",
 			))
 		}
+		// The persistence schema jobs run the same command inside the
+		// admin-tools image, and that image cannot be extended: the job's pod
+		// spec is fully operator-owned, so there is no volume or container
+		// override through which a helper binary could be supplied. If the
+		// command is not already present in admin-tools, schema setup fails
+		// with an authentication error even though the server pods themselves
+		// resolve the password fine.
+		warns = append(warns, fmt.Sprintf(
+			"%s: the command must already exist in the admin-tools image; the persistence schema jobs run it there and their pod spec cannot be extended with extra volumes or containers",
+			path.String(),
+		))
 	}
 
 	// Check for per unit histogram boundaries if metrics is enabled
