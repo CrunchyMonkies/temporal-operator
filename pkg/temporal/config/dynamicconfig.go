@@ -18,7 +18,9 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"math"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 )
@@ -80,14 +82,86 @@ func constrainedValueToYamlConstrainedValue(cv *v1beta1.ConstrainedValue) (YamlC
 		constraints["shardid"] = cv.Constraints.ShardID
 	}
 
+	// Decode the raw JSON value using a decoder with UseNumber so that JSON
+	// numbers are preserved as json.Number instead of being coerced to float64.
+	// Without this, an integer like 2097152 becomes float64(2097152), which
+	// yaml.v3 later marshals in scientific notation (2.097152e+06). Temporal's
+	// file based dynamic config client then fails to parse it for settings that
+	// expect an integer.
+	decoder := json.NewDecoder(bytes.NewReader(cv.Value.Raw))
+	decoder.UseNumber()
+
 	var value any
-	err := json.Unmarshal(cv.Value.Raw, &value)
+	err := decoder.Decode(&value)
 	if err != nil {
 		return YamlConstrainedValue{}, err
 	}
 
 	return YamlConstrainedValue{
 		Constraints: constraints,
-		Value:       value,
+		Value:       normalizeJSONNumbers(value),
 	}, nil
+}
+
+// normalizeJSONNumbers recursively walks a value decoded from JSON with
+// json.Decoder.UseNumber and converts every json.Number into a concrete int or
+// float64. Integers are converted to int to match the type yaml.v3 produces
+// when it unmarshals the config map back, keeping the reconciliation deep-equal
+// comparison stable.
+func normalizeJSONNumbers(value any) any {
+	switch v := value.(type) {
+	case json.Number:
+		return normalizeJSONNumber(v)
+	case map[string]any:
+		for key, val := range v {
+			v[key] = normalizeJSONNumbers(val)
+		}
+		return v
+	case []any:
+		for i, val := range v {
+			v[i] = normalizeJSONNumbers(val)
+		}
+		return v
+	default:
+		return value
+	}
+}
+
+// normalizeJSONNumber converts a single json.Number into the Go numeric type
+// that yaml.v3 round-trips without changing its textual form.
+func normalizeJSONNumber(n json.Number) any {
+	if i, err := n.Int64(); err == nil {
+		return narrowInt(i)
+	}
+
+	if f, err := n.Float64(); err == nil {
+		// Exponent notation such as 1e9 is valid JSON and is an integer, but
+		// json.Number.Int64 cannot parse it. Falling through to float64 here
+		// would make yaml.v3 write it back as "1e+09", which Temporal's
+		// file-based dynamic config client rejects for settings that expect an
+		// integer -- precisely the failure this normalisation exists to avoid.
+		// So integral values are converted back to an integer type. Note that
+		// returning n.String() instead would emit a quoted YAML string, which
+		// Temporal rejects just the same.
+		if f == math.Trunc(f) && f >= float64(math.MinInt64) && f < float64(math.MaxInt64) {
+			return narrowInt(int64(f))
+		}
+		return f
+	}
+
+	// Not representable as either (e.g. more precision than float64 holds).
+	// Keep the original text rather than silently losing digits.
+	return n.String()
+}
+
+// narrowInt returns i as an int when that is lossless, matching the type
+// yaml.v3 produces when it unmarshals the rendered config map back. Keeping the
+// types identical is what makes the reconciliation deep-equal comparison
+// stable. On platforms where int is 32 bits, values that do not fit stay int64
+// rather than silently wrapping to a different number.
+func narrowInt(i int64) any {
+	if int64(int(i)) == i {
+		return int(i)
+	}
+	return i
 }

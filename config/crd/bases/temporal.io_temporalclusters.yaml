@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.3
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: temporalclusters.temporal.io
 spec:
   group: temporal.io
@@ -2039,7 +2039,7 @@ spec:
                                     - LOCAL_QUORUM
                                     - EACH_QUORUM
                                     - LOCAL_ONE
-                                  type: integer
+                                  type: string
                                 serialConsistency:
                                   description: |-
                                     SerialConsistency sets the consistency for the serial prtion of queries. Values identical to gocql SerialConsistency values.
@@ -2047,7 +2047,7 @@ spec:
                                   enum:
                                     - SERIAL
                                     - LOCAL_SERIAL
-                                  type: integer
+                                  type: string
                               type: object
                             datacenter:
                               description: Datacenter is the data center filter arg for cassandra.
@@ -2302,7 +2302,7 @@ spec:
                                     - LOCAL_QUORUM
                                     - EACH_QUORUM
                                     - LOCAL_ONE
-                                  type: integer
+                                  type: string
                                 serialConsistency:
                                   description: |-
                                     SerialConsistency sets the consistency for the serial prtion of queries. Values identical to gocql SerialConsistency values.
@@ -2310,7 +2310,7 @@ spec:
                                   enum:
                                     - SERIAL
                                     - LOCAL_SERIAL
-                                  type: integer
+                                  type: string
                               type: object
                             datacenter:
                               description: Datacenter is the data center filter arg for cassandra.
@@ -2567,7 +2567,7 @@ spec:
                                     - LOCAL_QUORUM
                                     - EACH_QUORUM
                                     - LOCAL_ONE
-                                  type: integer
+                                  type: string
                                 serialConsistency:
                                   description: |-
                                     SerialConsistency sets the consistency for the serial prtion of queries. Values identical to gocql SerialConsistency values.
@@ -2575,7 +2575,7 @@ spec:
                                   enum:
                                     - SERIAL
                                     - LOCAL_SERIAL
-                                  type: integer
+                                  type: string
                               type: object
                             datacenter:
                               description: Datacenter is the data center filter arg for cassandra.
@@ -2830,7 +2830,7 @@ spec:
                                     - LOCAL_QUORUM
                                     - EACH_QUORUM
                                     - LOCAL_ONE
-                                  type: integer
+                                  type: string
                                 serialConsistency:
                                   description: |-
                                     SerialConsistency sets the consistency for the serial prtion of queries. Values identical to gocql SerialConsistency values.
@@ -2838,7 +2838,7 @@ spec:
                                   enum:
                                     - SERIAL
                                     - LOCAL_SERIAL
-                                  type: integer
+                                  type: string
                               type: object
                             datacenter:
                               description: Datacenter is the data center filter arg for cassandra.

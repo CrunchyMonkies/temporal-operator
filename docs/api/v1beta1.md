@@ -1522,7 +1522,7 @@ Defaults to 10s.</p>
 <code>values</code><br>
 <em>
 <a href="#temporal.io/v1beta1.ConstrainedValue">
-map[string][]./api/v1beta1.ConstrainedValue
+map[string][]ConstrainedValue
 </a>
 </em>
 </td>

@@ -187,9 +187,13 @@ func (b *SchemaScriptsConfigmapBuilder) getSQLArgs(spec *v1beta1.DatastoreSpec) 
 	}
 
 	args := orderedmap.NewOrderedMap[string, string]()
-	args.Set(schema.CLIOptEndpoint, host)      // --endpoint
-	args.Set(schema.CLIOptPort, port)          // --port
-	args.Set(schema.CLIOptUser, spec.SQL.User) // --user
+	args.Set(schema.CLIOptEndpoint, host) // --endpoint
+	args.Set(schema.CLIOptPort, port)     // --port
+	// Omit --user when empty: a bare flag would swallow the next token as its
+	// value. See getElasticsearchArgs for the full explanation.
+	if spec.SQL.User != "" {
+		args.Set(schema.CLIOptUser, spec.SQL.User) // --user
+	}
 	switch {
 	case spec.PasswordSecretRef != nil:
 		args.Set(schema.CLIOptPassword, fmt.Sprintf("$%s", spec.GetPasswordEnvVarName())) // --password
@@ -220,7 +224,11 @@ func (b *SchemaScriptsConfigmapBuilder) getCassandraArgs(spec *v1beta1.Datastore
 	args := orderedmap.NewOrderedMap[string, string]()
 	args.Set(schema.CLIOptEndpoint, strings.Join(spec.Cassandra.Hosts, ","))
 	args.Set(schema.CLIOptPort, strconv.Itoa(spec.Cassandra.Port))
-	args.Set(schema.CLIOptUser, spec.Cassandra.User)
+	// Omit --user when empty: a bare flag would swallow the next token as its
+	// value. See getElasticsearchArgs for the full explanation.
+	if spec.Cassandra.User != "" {
+		args.Set(schema.CLIOptUser, spec.Cassandra.User)
+	}
 	args.Set(schema.CLIOptPassword, fmt.Sprintf("$%s", spec.GetPasswordEnvVarName()))
 	args.Set(schema.CLIOptKeyspace, spec.Cassandra.Keyspace)
 	if spec.Cassandra.Datacenter != "" {
@@ -244,8 +252,18 @@ func (b *SchemaScriptsConfigmapBuilder) getCassandraArgs(spec *v1beta1.Datastore
 // (Temporal >= 1.30). TLS flags are appended by the shared block in getStoreArgs.
 func (b *SchemaScriptsConfigmapBuilder) getElasticsearchArgs(spec *v1beta1.DatastoreSpec) *orderedmap.OrderedMap[string, string] {
 	args := orderedmap.NewOrderedMap[string, string]()
-	args.Set(schema.CLIOptEndpoint, spec.Elasticsearch.URL)  // --endpoint
-	args.Set(schema.CLIOptUser, spec.Elasticsearch.Username) // --user
+	args.Set(schema.CLIOptEndpoint, spec.Elasticsearch.URL) // --endpoint
+	// Only set --user when it has a value. argsMapToString renders an empty
+	// value as a bare "--user", and the tool's flag parser (urfave/cli v1, on
+	// top of the stdlib flag package) then takes the *following* token as the
+	// flag's value. For "setup-schema" that swallows the subcommand itself:
+	// the tool finds no command, prints its help and exits 0, so the job is
+	// reported successful while neither the index template nor the index was
+	// ever created. An empty username is what an auth-less Elasticsearch needs,
+	// and the CRD permits it, so this is reachable.
+	if spec.Elasticsearch.Username != "" {
+		args.Set(schema.CLIOptUser, spec.Elasticsearch.Username) // --user
+	}
 	if spec.PasswordSecretRef != nil {
 		args.Set(schema.CLIOptPassword, fmt.Sprintf("$%s", spec.GetPasswordEnvVarName())) // --password
 	}
@@ -312,12 +330,24 @@ func (b *SchemaScriptsConfigmapBuilder) getStoreTool(storeType v1beta1.Datastore
 		// Which requires an env var set.
 		tool = "CASSANDRA_PORT=9042 temporal-cassandra-tool"
 	case v1beta1.ElasticsearchDatastore:
-		// Temporal >= 1.30 ships temporal-elasticsearch-tool in the admin-tools image.
-		tool = "temporal-elasticsearch-tool"
+		// temporal-elasticsearch-tool only exists in admin-tools >= 1.30. Older
+		// images drive Elasticsearch through the curl/jq templates, which do not
+		// reference a tool at all, so keep returning the empty sentinel there
+		// rather than emitting a binary that is not present in the image.
+		if b.esToolAvailable() {
+			tool = "temporal-elasticsearch-tool"
+		}
 	case v1beta1.UnknownDatastore:
 		tool = ""
 	}
 	return tool
+}
+
+// esToolAvailable reports whether the cluster's admin-tools image ships
+// temporal-elasticsearch-tool. Temporal >= 1.30 removed curl and jq from that
+// image and added the tool as the supported way to manage the visibility index.
+func (b *SchemaScriptsConfigmapBuilder) esToolAvailable() bool {
+	return b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0)
 }
 
 func (b *SchemaScriptsConfigmapBuilder) getESVersion(es *v1beta1.ElasticsearchSpec) string {
@@ -382,7 +412,7 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreSetupTemplate(spec *v1beta1.Data
 	storeType := spec.GetType()
 	if storeType == v1beta1.ElasticsearchDatastore {
 		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
-		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
+		if b.esToolAvailable() {
 			// getStoreArgs routes ES to getElasticsearchArgs and appends the shared
 			// TLS flags, so the tool gets --tls/--tls-*-file when the store uses TLS.
 			args, err := b.getStoreArgs(spec)
@@ -426,7 +456,7 @@ func (b *SchemaScriptsConfigmapBuilder) GetStoreUpdateTemplate(spec *v1beta1.Dat
 	storeType := spec.GetType()
 	if storeType == v1beta1.ElasticsearchDatastore {
 		// Temporal >= 1.30 uses temporal-elasticsearch-tool (curl/jq removed from the image).
-		if b.instance.Spec.Version.GreaterOrEqual(version.V1_30_0) {
+		if b.esToolAvailable() {
 			args, err := b.getStoreArgs(spec)
 			if err != nil {
 				return "", fmt.Errorf("can't get store args: %w", err)

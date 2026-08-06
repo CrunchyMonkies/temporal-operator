@@ -52,7 +52,11 @@ func NewSQLConfigFromDatastoreSpec(spec *v1beta1.DatastoreSpec) *config.SQL {
 		cfg.PasswordCommand = &config.PasswordCommandConfig{
 			Command: spec.SQL.PasswordCommand.Command,
 			Args:    spec.SQL.PasswordCommand.Args,
-			Timeout: spec.SQL.PasswordCommand.Timeout.Duration,
+		}
+		// Leave Timeout at its zero value when unset so the server applies its
+		// own default rather than a hard 0s.
+		if spec.SQL.PasswordCommand.Timeout != nil {
+			cfg.PasswordCommand.Timeout = spec.SQL.PasswordCommand.Timeout.Duration
 		}
 	}
 
