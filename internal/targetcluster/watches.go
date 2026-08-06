@@ -37,7 +37,10 @@ import (
 //
 // The first call for a target blocks while the informers it starts fill their caches, so callers
 // should treat a failure as retryable rather than fatal.
-func (r *Resolver) RegisterWatches(ctx context.Context, target *Target, c controller.Controller, kind string) error {
+// The ctx parameter is unused today -- the watches registered here outlive the call and take
+// their lifetime from the target's cache -- but it is kept for the ctx-first signature the rest
+// of this package and its controller-runtime callers follow.
+func (r *Resolver) RegisterWatches(_ context.Context, target *Target, c controller.Controller, kind string) error {
 	if target.IsLocal() || target.cache == nil {
 		return nil
 	}

@@ -111,7 +111,11 @@ func Apply(ctx context.Context, cfg *rest.Config, dir string, caBundleFile strin
 			return err
 		}
 
-		err := c.Patch(ctx, obj, client.Apply, fieldOwner, client.ForceOwnership)
+		// client.Apply is deprecated in favour of client.Client.Apply(), which takes a typed
+		// applyconfiguration rather than the unstructured objects this bootstrap decodes
+		// straight from manifest YAML. Migrating means giving up the unstructured path
+		// entirely, so it is deferred to its own change.
+		err := c.Patch(ctx, obj, client.Apply, fieldOwner, client.ForceOwnership) //nolint:staticcheck // SA1019: see note above.
 		if err != nil {
 			return fmt.Errorf("can't apply %s %s: %w", obj.GetKind(), obj.GetName(), err)
 		}

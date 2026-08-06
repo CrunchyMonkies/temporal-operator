@@ -235,7 +235,7 @@ func TestForgetDropsWatchRegistrations(t *testing.T) {
 	assert.Contains(t, resolver.watched, "demo/other/TemporalCluster")
 }
 
-func targetClusterResource(name, namespace, secretName string) *v1beta1.TemporalTargetCluster {
+func targetClusterResource(name, namespace, secretName string) *v1beta1.TemporalTargetCluster { //nolint:unparam // name is spelled out at every call site to keep the fixtures readable.
 	return &v1beta1.TemporalTargetCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: v1beta1.TemporalTargetClusterSpec{

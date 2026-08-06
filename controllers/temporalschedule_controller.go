@@ -227,7 +227,7 @@ func (r *TemporalScheduleReconciler) handleSuccess(schedule *v1beta1.TemporalSch
 	return r.handleSuccessWithRequeue(schedule, 0)
 }
 
-func (r *TemporalScheduleReconciler) handleError(ctx context.Context, schedule *v1beta1.TemporalSchedule, reason string, action string, err error) (ctrl.Result, error) { //nolint:unparam
+func (r *TemporalScheduleReconciler) handleError(ctx context.Context, schedule *v1beta1.TemporalSchedule, reason string, action string, err error) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	logger.Error(err, action)

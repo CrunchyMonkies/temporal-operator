@@ -198,7 +198,7 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // For a local target there is nothing to do: the owner references are real and the garbage
 // collector handles the cascade. A remote target has neither, so the operator deletes them itself,
 // which is the whole reason the finalizer exists.
-func (r *TemporalClusterReconciler) reconcileDelete(ctx context.Context, cluster *v1beta1.TemporalCluster) (ctrl.Result, error) {
+func (r *TemporalClusterReconciler) reconcileDelete(ctx context.Context, cluster *v1beta1.TemporalCluster) (ctrl.Result, error) { //nolint:unparam // the ctrl.Result is always empty today but keeps the signature the other reconcile paths use.
 	logger := log.FromContext(ctx)
 
 	logger.Info("Deleting temporal cluster", "name", cluster.Name)

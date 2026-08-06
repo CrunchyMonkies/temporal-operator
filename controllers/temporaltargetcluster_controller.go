@@ -43,7 +43,7 @@ const targetClusterProbeInterval = 5 * time.Minute
 
 // kubeconfigSecretField indexes target clusters by the name of the Secret holding their
 // kubeconfig, so rotating one re-probes the targets using it.
-const kubeconfigSecretField = "spec.kubeconfigSecretRef.name"
+const kubeconfigSecretField = "spec.kubeconfigSecretRef.name" //nolint:gosec // G101: a field index path, not a credential.
 
 // TemporalTargetClusterReconciler reconciles a TemporalTargetCluster object.
 //

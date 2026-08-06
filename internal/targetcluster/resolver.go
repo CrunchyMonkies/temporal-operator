@@ -143,7 +143,7 @@ func (r *Resolver) For(ctx context.Context, reader client.Reader, ref *v1beta1.O
 		delete(r.targets, name)
 	}
 
-	target, err := r.connect(ctx, name, targetCluster, kubeconfig, secret.ResourceVersion)
+	target, err := r.connect(name, targetCluster, kubeconfig, secret.ResourceVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (r *Resolver) Forget(name types.NamespacedName) {
 }
 
 // connect builds a target's api server connection. The caller must hold r.mu.
-func (r *Resolver) connect(ctx context.Context, name types.NamespacedName, targetCluster *v1beta1.TemporalTargetCluster, kubeconfig []byte, credentialsVersion string) (*Target, error) {
+func (r *Resolver) connect(name types.NamespacedName, targetCluster *v1beta1.TemporalTargetCluster, kubeconfig []byte, credentialsVersion string) (*Target, error) {
 	restConfig, err := RestConfigFromKubeconfig(kubeconfig, targetCluster.Spec.Context)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s has an unusable kubeconfig: %w", ErrTargetClusterNotReady, name, err)

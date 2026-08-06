@@ -206,7 +206,7 @@ func (r *TemporalNamespaceReconciler) handleSuccess(namespace *v1beta1.TemporalN
 	return r.handleSuccessWithRequeue(namespace, 0)
 }
 
-func (r *TemporalNamespaceReconciler) handleError(namespace *v1beta1.TemporalNamespace, reason string, err error) (ctrl.Result, error) { //nolint:unparam
+func (r *TemporalNamespaceReconciler) handleError(namespace *v1beta1.TemporalNamespace, reason string, err error) (ctrl.Result, error) {
 	return r.handleErrorWithRequeue(namespace, reason, err, 0)
 }
 
