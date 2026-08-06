@@ -1,6 +1,3 @@
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.28.0
-
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -215,19 +212,19 @@ HELM_DOCS ?= $(LOCALBIN)/helm-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v4.5.7
-OPERATOR_SDK_VERSION ?= 1.37.0
-CONTROLLER_TOOLS_VERSION ?=  v0.21.0
-GO_LICENSER_VERSION ?= v0.4.0
-GEN_CRD_API_REFERENCE_DOCS_VERSION ?= 3f29e6853552dcf08a8e846b1225f275ed0f3e3b
+OPERATOR_SDK_VERSION ?= 1.42.3
+CONTROLLER_TOOLS_VERSION ?= v0.21.0
+GO_LICENSER_VERSION ?= v0.4.2
+GEN_CRD_API_REFERENCE_DOCS_VERSION ?= fca9c57bb1b2075a32100ca24637513a7b1d9dfe
 GOLANGCI_LINT_VERSION ?= v2.12.2
-YQ_VERSION ?= v4.30.6
-KIND_WITH_REGISTRY_VERSION ?= 0.17.0
-HELM_DOCS_VERSION ?= v1.12.0
+YQ_VERSION ?= v4.53.3
+KIND_WITH_REGISTRY_VERSION ?= 0.32.0
+HELM_DOCS_VERSION ?= v1.14.2
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
   printf '%s\n' "$$v" | sed -E 's/^v?([0-9]+)\.([0-9]+).*/release-\1.\2/')
-  #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
+#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
