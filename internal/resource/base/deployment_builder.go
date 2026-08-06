@@ -133,7 +133,7 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 			},
 			corev1.EnvVar{
 				Name:  "TEMPORAL_SERVER_CONFIG_FILE_PATH",
-				Value: "/etc/temporal/config/config_template.yaml",
+				Value: meta.ConfigFilePath,
 			},
 		)
 	}
@@ -145,8 +145,8 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      "config",
-			MountPath: "/etc/temporal/config/config_template.yaml",
-			SubPath:   "config_template.yaml",
+			MountPath: meta.ConfigFilePath,
+			SubPath:   meta.ConfigFileName,
 		},
 	}
 
@@ -360,7 +360,7 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	}
 
 	deployment.Spec.Template = corev1.PodTemplateSpec{
-		ObjectMeta: meta.BuildPodObjectMeta(b.instance, b.serviceName, b.configHash),
+		ObjectMeta: meta.BuildPodObjectMeta(b.instance, b.serviceName, b.configHash, deployment.Spec.Template.ObjectMeta),
 		Spec: corev1.PodSpec{
 			ServiceAccountName:       b.instance.ChildResourceName(b.serviceName),
 			DeprecatedServiceAccount: b.instance.ChildResourceName(b.serviceName),
