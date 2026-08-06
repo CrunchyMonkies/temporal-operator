@@ -220,6 +220,12 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 YQ_VERSION ?= v4.53.3
 KIND_WITH_REGISTRY_VERSION ?= 0.32.0
 HELM_DOCS_VERSION ?= v1.14.2
+# GO_VERSION is the Go version this module targets, taken from go.mod. It is used to
+# pin GOTOOLCHAIN when building golangci-lint: golangci-lint's own go.mod requires a
+# lower Go version than ours, so a plain `go install` builds it with that lower
+# toolchain, and it then refuses to run with "the Go language version used to build
+# golangci-lint is lower than the targeted Go version".
+GO_VERSION ?= $(shell go list -m -f '{{.GoVersion}}')
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
@@ -250,7 +256,7 @@ operator-sdk: $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(LOCALBIN)
 	@test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_LINT_VERSION) || \
-	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOTOOLCHAIN=go$(GO_VERSION) GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: go-licenser
 go-licenser: $(GO_LICENSER)
