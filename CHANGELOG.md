@@ -17,14 +17,13 @@ Improvements:
   - Elasticsearch visibility on `>= 1.31` uses the `temporal-elasticsearch-tool` path introduced for `>= 1.30` (see the 1.30 entry); its embedded index template applies all built-in search attributes up to v14 (including `TemporalExternalPayloadSizeBytes`/`TemporalExternalPayloadCount`) automatically.
 
 Fixes:
-- Preserve externally-added pod-template labels and annotations (e.g. `kubectl.kubernetes.io/restartedAt` from `kubectl rollout restart`) across reconciles, while still removing operator-managed ones when the spec stops asking for them. Disabling a feature now actually clears its metadata: previously, clearing `spec.mTLS` left `sidecar.istio.io/inject: "true"` behind and istio kept injecting sidecars, and turning off `spec.metrics` left the `prometheus.io/*` scrape annotations in place.
 - `spec.version` values that are marked broken no longer suggest another broken release as the upgrade target (`1.26.0` previously suggested `1.26.1`, which is also rejected).
-- Dynamic config integers written in exponent form (e.g. `1e9`) are no longer emitted in scientific notation, which Temporal's file-based dynamic config client rejects for settings expecting an integer. Large integers no longer truncate on 32-bit builds.
 
 Updates:
 - Bump `go.temporal.io/server` to v1.31.1, `go.temporal.io/api` to v1.62.8, `go.temporal.io/sdk` to v1.41.1.
 - Bump `controller-gen` to v0.21.0 (v0.16.3 cannot be built with Go 1.26). **This changes the published CRD schema for two pre-existing fields:** `cassandra.consistency` and `cassandra.serialConsistency` are now `type: string` instead of `type: integer`. The previous schema was self-contradictory — it declared `type: integer` alongside string enum values (`ANY`, `ONE`, `LOCAL_QUORUM`, ...), so no value could ever validate. `type: string` matches the JSON form these fields have always had, since `gocql.Consistency` implements `encoding.TextMarshaler`. No spec change is required of users.
 - Bump `controller-runtime` to v0.23.3 (pairs with client-go v0.35) and migrate `golangci-lint` to v2.
+- Refresh the remaining `Makefile` tool pins, including `kustomize` v4.5.7 -> v5.8.1 (`patchesStrategicMerge` -> `patches`, `vars` -> `replacements`; generated manifests are byte-identical). `ENVTEST_K8S_VERSION` is no longer shadowed by a hardcoded `1.28.0`, so envtest runs assets matching the `k8s.io/api` in `go.mod`.
 
 ## 0.12.2
 
