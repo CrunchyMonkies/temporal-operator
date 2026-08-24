@@ -91,7 +91,10 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			// Two ways to get here:
 			//  - TemporalCluster has not been created yet. In this case, if the TemporalNamespace is deleted, no point in waiting for the TemporalCluster to be healthy.
 			//  - TemporalCluster existed at some point, but now is deleted. In this case, the underlying namespace in the Temporal server is already gone.
-			controllerutil.RemoveFinalizer(namespace, deletionFinalizer)
+			if err := removeFinalizer(ctx, r.Client, namespace, deletionFinalizer); err != nil {
+				return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
+			}
+
 			return reconcile.Result{}, nil
 		}
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -117,13 +120,21 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		err := r.ensureNamespaceDeleted(ctx, namespace, cluster, target)
 		if err != nil {
-			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
+			return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
 		}
 		return reconcile.Result{}, nil
 	}
 
 	// Ensure the namespace have a deletion marker if the AllowDeletion is set to true.
-	r.ensureFinalizer(namespace)
+	if err := r.ensureFinalizer(ctx, namespace); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The namespace was deleted mid-reconciliation: nothing left to finalize, and no
+			// status left to report a failure through.
+			return reconcile.Result{}, nil
+		}
+
+		return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
+	}
 
 	client, err := temporal.GetClusterNamespaceClient(ctx, target.Client, cluster)
 	if err != nil {
@@ -169,10 +180,12 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 // ensureFinalizer ensures the deletion finalizer is set on the object if the user allowed namespace deletion using the CRD.
-func (r *TemporalNamespaceReconciler) ensureFinalizer(namespace *v1beta1.TemporalNamespace) {
+func (r *TemporalNamespaceReconciler) ensureFinalizer(ctx context.Context, namespace *v1beta1.TemporalNamespace) error {
 	if namespace.ObjectMeta.DeletionTimestamp.IsZero() && namespace.Spec.AllowDeletion {
-		_ = controllerutil.AddFinalizer(namespace, deletionFinalizer)
+		return addFinalizer(ctx, r.Client, namespace, deletionFinalizer)
 	}
+
+	return nil
 }
 
 func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
@@ -198,8 +211,7 @@ func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context
 		}
 	}
 
-	_ = controllerutil.RemoveFinalizer(namespace, deletionFinalizer)
-	return nil
+	return removeFinalizer(ctx, r.Client, namespace, deletionFinalizer)
 }
 
 func (r *TemporalNamespaceReconciler) handleSuccess(namespace *v1beta1.TemporalNamespace) (ctrl.Result, error) {

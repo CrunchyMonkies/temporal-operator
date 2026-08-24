@@ -156,7 +156,10 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// target: owner references handle that case, and an unnecessary finalizer only creates a way
 	// for resources to get stuck.
 	if !target.IsLocal() {
-		controllerutil.AddFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+		if err := addFinalizer(ctx, r.Client, cluster, targetcluster.TargetClusterCleanupFinalizer); err != nil {
+			logger.Error(err, "Can't add the target cluster cleanup finalizer")
+			return r.handleErrorWithRequeue(cluster, v1beta1.ReconcileErrorReason, err, 0)
+		}
 
 		err := r.Resolver.RegisterWatches(ctx, target, r.controller, temporalClusterKind)
 		if err != nil {
@@ -223,9 +226,13 @@ func (r *TemporalClusterReconciler) reconcileDelete(ctx context.Context, cluster
 		return reconcile.Result{}, err
 	}
 
-	controllerutil.RemoveFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+	if err := removeFinalizer(ctx, r.Client, cluster, targetcluster.TargetClusterCleanupFinalizer); err != nil {
+		r.Recorder.Event(cluster, corev1.EventTypeWarning, "ProcessingError", err.Error())
 
-	return reconcile.Result{}, r.Update(ctx, cluster)
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{}, nil
 }
 
 func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temporalCluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
