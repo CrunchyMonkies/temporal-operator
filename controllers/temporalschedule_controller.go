@@ -214,7 +214,9 @@ func (r *TemporalScheduleReconciler) ensureFinalizer(ctx context.Context, schedu
 		return addFinalizer(ctx, r.Client, schedule, deletionFinalizer)
 	}
 
-	return removeFinalizer(ctx, r.Client, schedule, deletionFinalizer)
+	// Strict: the reconciliation goes on to create the schedule after this, so a schedule deleted
+	// mid-cycle has to reach the caller rather than be reported as a successful no-op.
+	return removeFinalizerStrict(ctx, r.Client, schedule, deletionFinalizer)
 }
 
 func (r *TemporalScheduleReconciler) ensureScheduleDeleted(ctx context.Context, schedule *v1beta1.TemporalSchedule, client *temporalclient.Client) error {
