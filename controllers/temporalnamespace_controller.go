@@ -92,7 +92,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			//  - TemporalCluster has not been created yet. In this case, if the TemporalNamespace is deleted, no point in waiting for the TemporalCluster to be healthy.
 			//  - TemporalCluster existed at some point, but now is deleted. In this case, the underlying namespace in the Temporal server is already gone.
 			if err := removeFinalizer(ctx, r.Client, namespace, deletionFinalizer); err != nil {
-				return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
+				return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 			}
 
 			return reconcile.Result{}, nil
@@ -120,7 +120,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		err := r.ensureNamespaceDeleted(ctx, namespace, cluster, target)
 		if err != nil {
-			return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
+			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -133,7 +133,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return reconcile.Result{}, nil
 		}
 
-		return r.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, err, finalizerRetryPeriod)
+		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 	}
 
 	client, err := temporal.GetClusterNamespaceClient(ctx, target.Client, cluster)
@@ -227,12 +227,15 @@ func (r *TemporalNamespaceReconciler) handleSuccessWithRequeue(namespace *v1beta
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
+// handleErrorWithRequeue reports the error to the caller as well as through the status: the
+// predicates only fire on a spec change, so a swallowed error leaves nothing to bring the object
+// back, and controller-runtime needs the error to rate-limit the retry.
 func (r *TemporalNamespaceReconciler) handleErrorWithRequeue(namespace *v1beta1.TemporalNamespace, reason string, err error, requeueAfter time.Duration) (ctrl.Result, error) {
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
 	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, reason, err.Error())
-	return reconcile.Result{RequeueAfter: requeueAfter}, nil
+	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 
 func (r *TemporalNamespaceReconciler) clusterToNamespacesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {

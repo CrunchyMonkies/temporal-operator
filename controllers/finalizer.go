@@ -31,12 +31,16 @@ func addFinalizer(ctx context.Context, c client.Client, obj client.Object, final
 }
 
 func removeFinalizer(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
-	err := patchFinalizers(ctx, c, obj, func(patched client.Object) bool {
+	// Dropping the last finalizer completes the deletion, so a retried removal finds the object gone.
+	return client.IgnoreNotFound(removeFinalizerStrict(ctx, c, obj, finalizer))
+}
+
+// removeFinalizerStrict reports a gone object instead of treating it as success, for callers that
+// have work left to do after the removal and must not carry on against a deleted object.
+func removeFinalizerStrict(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
+	return patchFinalizers(ctx, c, obj, func(patched client.Object) bool {
 		return controllerutil.RemoveFinalizer(patched, finalizer)
 	})
-
-	// Dropping the last finalizer completes the deletion, so a retried removal finds the object gone.
-	return client.IgnoreNotFound(err)
 }
 
 // patchFinalizers writes its own copy of obj, keeping finalizers out of the reconciliation's

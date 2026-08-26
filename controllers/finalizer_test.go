@@ -19,6 +19,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/alexandrevilain/controller-tools/pkg/patch"
@@ -26,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -279,5 +281,116 @@ var _ = Describe("Finalizers", func() {
 			// The stale snapshot still carries the finalizer, so this retry reaches a gone object.
 			Expect(removeFinalizer(ctx, k8sClient, snapshot, deletionFinalizer)).To(Succeed())
 		})
+	})
+})
+
+func createTestSchedule(ctx context.Context, name string, allowDeletion bool, finalizers ...string) *v1beta1.TemporalSchedule {
+	schedule := &v1beta1.TemporalSchedule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  "default",
+			Finalizers: finalizers,
+		},
+		Spec: v1beta1.TemporalScheduleSpec{
+			NamespaceRef:  v1beta1.ObjectReference{Name: "test-namespace"},
+			AllowDeletion: allowDeletion,
+		},
+	}
+	Expect(k8sClient.Create(ctx, schedule)).To(Succeed())
+
+	return schedule
+}
+
+func getTestSchedule(ctx context.Context, key client.ObjectKey) *v1beta1.TemporalSchedule {
+	schedule := &v1beta1.TemporalSchedule{}
+	Expect(k8sClient.Get(ctx, key, schedule)).To(Succeed())
+
+	return schedule
+}
+
+var _ = Describe("Strict finalizer removal", func() {
+	ctx := context.Background()
+
+	It("reports a gone object where the tolerant removal reports success", func() {
+		schedule := createTestSchedule(ctx, "strict-removal-on-deleted-object", false, deletionFinalizer)
+		key := client.ObjectKeyFromObject(schedule)
+
+		snapshot := getTestSchedule(ctx, key)
+
+		// Deleting leaves it Terminating; dropping the finalizer from a fresh read completes it.
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+		Expect(removeFinalizer(ctx, k8sClient, getTestSchedule(ctx, key), deletionFinalizer)).To(Succeed())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, &v1beta1.TemporalSchedule{}))).To(BeTrue())
+
+		// The stale snapshot still carries the finalizer, so both calls reach a gone object: the
+		// tolerant wrapper swallows that, the strict one reports it.
+		Expect(removeFinalizer(ctx, k8sClient, snapshot.DeepCopy(), deletionFinalizer)).To(Succeed())
+		Expect(apierrors.IsNotFound(removeFinalizerStrict(ctx, k8sClient, snapshot, deletionFinalizer))).To(BeTrue())
+	})
+
+	// The schedule reconciliation goes on to CreateSchedule after ensureFinalizer, so a swallowed
+	// NotFound here means creating a schedule in Temporal for a CR that is already gone. The
+	// snapshot predates the deletion, which is what a reconciliation racing the API server holds.
+	It("surfaces a mid-cycle deletion through ensureFinalizer when the finalizer is being dropped", func() {
+		schedule := createTestSchedule(ctx, "ensure-finalizer-strict-when-dropping", false, deletionFinalizer)
+		key := client.ObjectKeyFromObject(schedule)
+
+		snapshot := getTestSchedule(ctx, key)
+
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+		Expect(removeFinalizer(ctx, k8sClient, getTestSchedule(ctx, key), deletionFinalizer)).To(Succeed())
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		Expect(apierrors.IsNotFound(reconciler.ensureFinalizer(ctx, snapshot))).To(BeTrue())
+	})
+
+	It("cannot see a mid-cycle deletion when there is no finalizer to drop", func() {
+		schedule := createTestSchedule(ctx, "ensure-finalizer-no-write-no-signal", false)
+		key := client.ObjectKeyFromObject(schedule)
+
+		snapshot := &v1beta1.TemporalSchedule{}
+		Expect(k8sClient.Get(ctx, key, snapshot)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		Expect(reconciler.ensureFinalizer(ctx, snapshot)).To(Succeed())
+	})
+
+	It("surfaces a mid-cycle deletion through ensureFinalizer when deletion is allowed", func() {
+		schedule := createTestSchedule(ctx, "ensure-finalizer-strict-when-deletion-allowed", true)
+		key := client.ObjectKeyFromObject(schedule)
+
+		snapshot := &v1beta1.TemporalSchedule{}
+		Expect(k8sClient.Get(ctx, key, snapshot)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		Expect(apierrors.IsNotFound(reconciler.ensureFinalizer(ctx, snapshot))).To(BeTrue())
+	})
+})
+
+var _ = Describe("Reconcile error handling", func() {
+	ctx := context.Background()
+
+	// controller-runtime rate-limits the retry off the returned error; swallowing it leaves the
+	// predicates as the only way back, and they only fire on a spec change.
+	It("returns the error to the caller for a namespace", func() {
+		namespace := createTestNamespace(ctx, "namespace-error-is-returned")
+
+		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
+		_, err := reconciler.handleErrorWithRequeue(namespace, v1beta1.ReconcileErrorReason, errors.New("boom"), 0)
+
+		Expect(err).To(MatchError("boom"))
+		Expect(meta.IsStatusConditionTrue(namespace.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+	})
+
+	It("returns the error to the caller for a schedule", func() {
+		schedule := createTestSchedule(ctx, "schedule-error-is-returned", false)
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		_, err := reconciler.handleErrorWithRequeue(ctx, schedule, v1beta1.ReconcileErrorReason, "Testing", errors.New("boom"), 0)
+
+		Expect(err).To(MatchError("boom"))
+		Expect(meta.IsStatusConditionTrue(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
 	})
 })
