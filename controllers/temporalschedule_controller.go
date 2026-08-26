@@ -94,7 +94,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			//  - TemporalNamespace has not been created yet. In this case, if the TemporalSchedule is deleted, no point in waiting for the TemporalNamespace to be healthy.
 			//  - TemporalNamespace existed at some point, but now is deleted. In this case, the underlying schedule in the Temporal server is already gone.
 			if err := removeFinalizer(ctx, r.Client, schedule, deletionFinalizer); err != nil {
-				return r.handleErrorWithRequeue(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err, finalizerRetryPeriod)
+				return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err)
 			}
 
 			return reconcile.Result{}, nil
@@ -118,7 +118,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			//  - TemporalCluster has not been created yet. In this case, if the TemporalSchedule is deleted, no point in waiting for the TemporalCluster to be healthy.
 			//  - TemporalCluster existed at some point, but now is deleted. In this case, the underlying schedule in the Temporal server is already gone.
 			if err := removeFinalizer(ctx, r.Client, schedule, deletionFinalizer); err != nil {
-				return r.handleErrorWithRequeue(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err, finalizerRetryPeriod)
+				return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err)
 			}
 
 			return reconcile.Result{}, nil
@@ -156,7 +156,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		err := r.ensureScheduleDeleted(ctx, schedule, &client)
 		if err != nil {
-			return r.handleErrorWithRequeue(ctx, schedule, v1beta1.ReconcileErrorReason, "Deleting schedule", err, finalizerRetryPeriod)
+			return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Deleting schedule", err)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -169,7 +169,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			return reconcile.Result{}, nil
 		}
 
-		return r.handleErrorWithRequeue(ctx, schedule, v1beta1.ReconcileErrorReason, "Ensuring finalizer", err, finalizerRetryPeriod)
+		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Ensuring finalizer", err)
 	}
 
 	request, err := temporal.ScheduleToCreateScheduleRequest(schedule)
@@ -250,6 +250,9 @@ func (r *TemporalScheduleReconciler) handleSuccessWithRequeue(schedule *v1beta1.
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
+// handleErrorWithRequeue reports the error to the caller as well as through the status: the
+// predicates only fire on a spec change, so a swallowed error leaves nothing to bring the object
+// back, and controller-runtime needs the error to rate-limit the retry.
 func (r *TemporalScheduleReconciler) handleErrorWithRequeue(ctx context.Context, schedule *v1beta1.TemporalSchedule, reason string, action string, err error, requeueAfter time.Duration) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -259,7 +262,7 @@ func (r *TemporalScheduleReconciler) handleErrorWithRequeue(ctx context.Context,
 		reason = v1beta1.ReconcileErrorReason
 	}
 	v1beta1.SetTemporalScheduleReconcileError(schedule, metav1.ConditionTrue, reason, err.Error())
-	return reconcile.Result{RequeueAfter: requeueAfter}, nil
+	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 
 func (r *TemporalScheduleReconciler) namespaceToSchedulesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {
