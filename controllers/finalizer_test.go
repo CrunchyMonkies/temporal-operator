@@ -394,3 +394,35 @@ var _ = Describe("Reconcile error handling", func() {
 		Expect(meta.IsStatusConditionTrue(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
 	})
 })
+
+var _ = Describe("Terminal reconcile errors", func() {
+	ctx := context.Background()
+
+	// A malformed spec fails identically on every retry. controller-runtime records a terminal
+	// error without requeueing; the generation change from a corrected spec brings the object back.
+	It("are not requeued for a schedule", func() {
+		schedule := createTestSchedule(ctx, "schedule-terminal-error", false)
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		result, err := reconciler.handleTerminalError(ctx, schedule, "Testing", errors.New("boom"))
+
+		Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
+		Expect(err).To(MatchError(ContainSubstring("boom")))
+		Expect(result).To(Equal(reconcile.Result{}))
+		Expect(meta.FindStatusCondition(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition).Reason).
+			To(Equal(v1beta1.SpecValidationFailedReason))
+	})
+
+	It("are not requeued for a namespace", func() {
+		namespace := createTestNamespace(ctx, "namespace-terminal-error")
+
+		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
+		result, err := reconciler.handleTerminalError(namespace, errors.New("boom"))
+
+		Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
+		Expect(err).To(MatchError(ContainSubstring("boom")))
+		Expect(result).To(Equal(reconcile.Result{}))
+		Expect(meta.FindStatusCondition(namespace.Status.Conditions, v1beta1.ReconcileErrorCondition).Reason).
+			To(Equal(v1beta1.SpecValidationFailedReason))
+	})
+})

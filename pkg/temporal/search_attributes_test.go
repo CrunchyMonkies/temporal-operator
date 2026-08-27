@@ -19,6 +19,7 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
@@ -186,6 +187,8 @@ func TestReconcileSearchAttributes(t *testing.T) {
 		err := ReconcileSearchAttributes(ctx, mock, ns)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "does not allow type changes")
+		// The spec is what is wrong, so the caller can stop retrying rather than back off.
+		assert.ErrorIs(t, err, ErrInvalidSearchAttributes)
 		assert.False(t, mock.addCalled)
 		assert.False(t, mock.removeCalled)
 	})
@@ -203,6 +206,17 @@ func TestReconcileSearchAttributes(t *testing.T) {
 		err := ReconcileSearchAttributes(ctx, mock, ns)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid search attribute type")
+		assert.ErrorIs(t, err, ErrInvalidSearchAttributes)
 		assert.False(t, mock.addCalled)
+	})
+
+	// A server that cannot be reached is the opposite case: a retry is exactly what it needs.
+	t.Run("server failure is not marked as a spec problem", func(t *testing.T) {
+		mock := &mockOperatorServiceClient{listError: errors.New("unavailable")}
+		ns := newNamespace(map[string]string{"CustomerId": "Keyword"}, false)
+
+		err := ReconcileSearchAttributes(ctx, mock, ns)
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, ErrInvalidSearchAttributes)
 	})
 }

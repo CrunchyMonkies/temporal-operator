@@ -19,6 +19,7 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
@@ -27,6 +28,10 @@ import (
 	"google.golang.org/grpc"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// ErrInvalidSearchAttributes marks a failure the namespace spec causes rather than the server, so
+// callers can tell it apart from a transient RPC failure and stop retrying it.
+var ErrInvalidSearchAttributes = errors.New("invalid search attributes")
 
 // searchAttributeTypes maps user-facing type names to Temporal IndexedValueType.
 var searchAttributeTypes = map[string]enums.IndexedValueType{
@@ -54,7 +59,7 @@ var searchAttributeTypeNames = map[enums.IndexedValueType]string{
 func SearchAttributeTypeFromString(s string) (enums.IndexedValueType, error) {
 	t, ok := searchAttributeTypes[s]
 	if !ok {
-		return enums.INDEXED_VALUE_TYPE_UNSPECIFIED, fmt.Errorf("invalid search attribute type %q: valid types are Text, Keyword, Int, Double, Bool, DateTime, KeywordList", s)
+		return enums.INDEXED_VALUE_TYPE_UNSPECIFIED, fmt.Errorf("%w: invalid search attribute type %q: valid types are Text, Keyword, Int, Double, Bool, DateTime, KeywordList", ErrInvalidSearchAttributes, s)
 	}
 	return t, nil
 }
@@ -103,7 +108,7 @@ func computeAttributesToAdd(desired, existing map[string]enums.IndexedValueType)
 		if existingType != desiredType {
 			existingTypeName, _ := SearchAttributeTypeToString(existingType)
 			desiredTypeName, _ := SearchAttributeTypeToString(desiredType)
-			return nil, fmt.Errorf("search attribute %q has type %s on server but %s in spec; Temporal does not allow type changes", name, existingTypeName, desiredTypeName)
+			return nil, fmt.Errorf("%w: search attribute %q has type %s on server but %s in spec; Temporal does not allow type changes", ErrInvalidSearchAttributes, name, existingTypeName, desiredTypeName)
 		}
 	}
 	return toAdd, nil

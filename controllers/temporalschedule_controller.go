@@ -174,7 +174,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	request, err := temporal.ScheduleToCreateScheduleRequest(schedule)
 	if err != nil {
-		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Constructing create schedule request", err)
+		return r.handleTerminalError(ctx, schedule, "Constructing create schedule request", err)
 	}
 
 	_, err = client.WorkflowService().CreateSchedule(ctx, request)
@@ -188,7 +188,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		request, err := temporal.ScheduleToUpdateScheduleRequest(schedule)
 		if err != nil {
-			return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Constructing update schedule request", err)
+			return r.handleTerminalError(ctx, schedule, "Constructing update schedule request", err)
 		}
 
 		_, err = client.WorkflowService().UpdateSchedule(ctx, request)
@@ -265,6 +265,16 @@ func (r *TemporalScheduleReconciler) handleErrorWithRequeue(ctx context.Context,
 	}
 	v1beta1.SetTemporalScheduleReconcileError(schedule, metav1.ConditionTrue, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
+}
+
+// handleTerminalError reports an error the schedule's own spec causes. controller-runtime records
+// it without requeueing: a retry would fail identically, and the generation change from a corrected
+// spec re-enqueues the schedule anyway, so backing off would only add noise.
+func (r *TemporalScheduleReconciler) handleTerminalError(ctx context.Context, schedule *v1beta1.TemporalSchedule, action string, err error) (ctrl.Result, error) {
+	log.FromContext(ctx).Error(err, action)
+
+	v1beta1.SetTemporalScheduleReconcileError(schedule, metav1.ConditionTrue, v1beta1.SpecValidationFailedReason, err.Error())
+	return reconcile.Result{}, reconcile.TerminalError(err)
 }
 
 func (r *TemporalScheduleReconciler) namespaceToSchedulesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {

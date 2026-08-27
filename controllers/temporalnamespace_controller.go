@@ -168,6 +168,10 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		if err := temporal.ReconcileSearchAttributes(ctx, clusterClient.OperatorService(), namespace); err != nil {
 			err = fmt.Errorf("can't reconcile search attributes for \"%s\" namespace: %w", namespace.GetName(), err)
+			if errors.Is(err, temporal.ErrInvalidSearchAttributes) {
+				return r.handleTerminalError(namespace, err)
+			}
+
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 	}
@@ -236,6 +240,14 @@ func (r *TemporalNamespaceReconciler) handleErrorWithRequeue(namespace *v1beta1.
 	}
 	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
+}
+
+// handleTerminalError reports an error the namespace's own spec causes. controller-runtime records
+// it without requeueing: a retry would fail identically, and the generation change from a corrected
+// spec re-enqueues the namespace anyway, so backing off would only add noise.
+func (r *TemporalNamespaceReconciler) handleTerminalError(namespace *v1beta1.TemporalNamespace, err error) (ctrl.Result, error) {
+	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, v1beta1.SpecValidationFailedReason, err.Error())
+	return reconcile.Result{}, reconcile.TerminalError(err)
 }
 
 func (r *TemporalNamespaceReconciler) clusterToNamespacesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {
