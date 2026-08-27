@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -491,25 +492,115 @@ var _ = Describe("Terminal reconcile errors", func() {
 		schedule := createTestSchedule(ctx, "schedule-terminal-error", false)
 
 		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
-		result, err := reconciler.handleTerminalError(ctx, schedule, "Testing", errors.New("boom"))
+		err := reconciler.handleTerminalError(ctx, schedule, "Testing", errors.New("boom"))
 
 		Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
 		Expect(err).To(MatchError(ContainSubstring("boom")))
-		Expect(result).To(Equal(reconcile.Result{}))
 		Expect(meta.FindStatusCondition(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition).Reason).
 			To(Equal(v1beta1.SpecValidationFailedReason))
+		Expect(meta.IsStatusConditionFalse(schedule.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+		Expect(meta.IsStatusConditionFalse(schedule.Status.Conditions, v1beta1.ReadyCondition)).To(BeTrue())
 	})
 
 	It("are not requeued for a namespace", func() {
 		namespace := createTestNamespace(ctx, "namespace-terminal-error")
 
 		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
-		result, err := reconciler.handleTerminalError(namespace, errors.New("boom"))
+		err := reconciler.handleTerminalError(namespace, errors.New("boom"))
 
 		Expect(errors.Is(err, reconcile.TerminalError(nil))).To(BeTrue())
 		Expect(err).To(MatchError(ContainSubstring("boom")))
-		Expect(result).To(Equal(reconcile.Result{}))
 		Expect(meta.FindStatusCondition(namespace.Status.Conditions, v1beta1.ReconcileErrorCondition).Reason).
 			To(Equal(v1beta1.SpecValidationFailedReason))
+		Expect(meta.IsStatusConditionFalse(namespace.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+		Expect(namespace.IsReady()).To(BeFalse())
+	})
+})
+
+var _ = Describe("Reconcile outcome conditions", func() {
+	ctx := context.Background()
+
+	// ReconcileError, ReconcileSuccess and Ready describe one outcome between them. Each used to be
+	// written in one direction only, so every one of them latched on first occurrence: an object
+	// that recovered still reported ReconcileError=True, and one that broke still reported
+	// ReconcileSuccess=True — which is the kubectl printer column.
+	It("clears the error condition once a schedule recovers", func() {
+		schedule := createTestSchedule(ctx, "schedule-outcome-recovers", false)
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+
+		_, err := reconciler.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Testing", errors.New("boom"))
+		Expect(err).To(HaveOccurred())
+		Expect(meta.IsStatusConditionTrue(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+
+		_, err = reconciler.handleSuccess(schedule)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(meta.IsStatusConditionFalse(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+		Expect(meta.IsStatusConditionTrue(schedule.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+		Expect(meta.FindStatusCondition(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition).Message).To(BeEmpty())
+	})
+
+	It("clears the error condition once a namespace recovers", func() {
+		namespace := createTestNamespace(ctx, "namespace-outcome-recovers")
+		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
+
+		_, err := reconciler.handleError(namespace, v1beta1.ReconcileErrorReason, errors.New("boom"))
+		Expect(err).To(HaveOccurred())
+		Expect(meta.IsStatusConditionTrue(namespace.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+
+		_, err = reconciler.handleSuccess(namespace)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(meta.IsStatusConditionFalse(namespace.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+		Expect(meta.IsStatusConditionTrue(namespace.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+	})
+
+	// A namespace gates whether its schedules reconcile at all, through IsReady.
+	It("stops reporting a failed namespace as ready", func() {
+		namespace := createTestNamespace(ctx, "namespace-outcome-not-ready")
+		v1beta1.SetTemporalNamespaceReady(namespace, metav1.ConditionTrue, v1beta1.TemporalNamespaceCreatedReason, "")
+		Expect(namespace.IsReady()).To(BeTrue())
+
+		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
+		_, err := reconciler.handleError(namespace, v1beta1.ReconcileErrorReason, errors.New("boom"))
+
+		Expect(err).To(HaveOccurred())
+		Expect(namespace.IsReady()).To(BeFalse())
+		Expect(meta.IsStatusConditionFalse(namespace.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+		Expect(meta.FindStatusCondition(namespace.Status.Conditions, v1beta1.ReadyCondition).Reason).
+			To(Equal(v1beta1.ReconcileErrorReason))
+	})
+
+	It("stops reporting a failed schedule as ready", func() {
+		schedule := createTestSchedule(ctx, "schedule-outcome-not-ready", false)
+		v1beta1.SetTemporalScheduleReady(schedule, metav1.ConditionTrue, v1beta1.TemporalScheduleCreatedReason, "")
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient}
+		_, err := reconciler.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Testing", errors.New("boom"))
+
+		Expect(err).To(HaveOccurred())
+		Expect(meta.IsStatusConditionFalse(schedule.Status.Conditions, v1beta1.ReadyCondition)).To(BeTrue())
+		Expect(meta.IsStatusConditionFalse(schedule.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+	})
+
+	// The cluster's readiness comes from its services actually running, not from whether the last
+	// reconcile cycle completed, so the outcome handlers must leave it alone.
+	It("keeps a cluster's readiness independent of the reconcile outcome", func() {
+		cluster := createTestCluster(ctx, "cluster-outcome-conditions")
+		reconciler := &TemporalClusterReconciler{
+			Base: Base{Client: k8sClient, Recorder: record.NewFakeRecorder(10)},
+		}
+
+		_, err := reconciler.handleErrorWithRequeue(cluster, v1beta1.ReconcileErrorReason, errors.New("boom"), 0)
+
+		Expect(err).To(HaveOccurred())
+		Expect(meta.IsStatusConditionFalse(cluster.Status.Conditions, v1beta1.ReconcileSuccessCondition)).To(BeTrue())
+		Expect(cluster.IsReady()).To(BeTrue())
+
+		_, err = reconciler.handleSuccess(cluster)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(meta.IsStatusConditionFalse(cluster.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+		Expect(cluster.IsReady()).To(BeTrue())
 	})
 })

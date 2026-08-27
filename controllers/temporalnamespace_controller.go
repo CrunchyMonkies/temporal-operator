@@ -184,7 +184,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if err := temporal.ReconcileSearchAttributes(ctx, clusterClient.OperatorService(), namespace); err != nil {
 			err = fmt.Errorf("can't reconcile search attributes for \"%s\" namespace: %w", namespace.GetName(), err)
 			if errors.Is(err, temporal.ErrInvalidSearchAttributes) {
-				return r.handleTerminalError(namespace, err)
+				return reconcile.Result{}, r.handleTerminalError(namespace, err)
 			}
 
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -250,7 +250,7 @@ func (r *TemporalNamespaceReconciler) handleError(namespace *v1beta1.TemporalNam
 }
 
 func (r *TemporalNamespaceReconciler) handleSuccessWithRequeue(namespace *v1beta1.TemporalNamespace, requeueAfter time.Duration) (ctrl.Result, error) {
-	v1beta1.SetTemporalNamespaceReconcileSuccess(namespace, metav1.ConditionTrue, v1beta1.ReconcileSuccessReason, "")
+	v1beta1.MarkTemporalNamespaceReconcileSucceeded(namespace)
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
@@ -261,16 +261,19 @@ func (r *TemporalNamespaceReconciler) handleErrorWithRequeue(namespace *v1beta1.
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
-	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, reason, err.Error())
+	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 
 // handleTerminalError reports an error the namespace's own spec causes. controller-runtime records
 // it without requeueing: a retry would fail identically, and the generation change from a corrected
 // spec re-enqueues the namespace anyway, so backing off would only add noise.
-func (r *TemporalNamespaceReconciler) handleTerminalError(namespace *v1beta1.TemporalNamespace, err error) (ctrl.Result, error) {
-	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, v1beta1.SpecValidationFailedReason, err.Error())
-	return reconcile.Result{}, reconcile.TerminalError(err)
+//
+// Unlike the handlers above it returns no ctrl.Result, because there is no requeue for it to carry:
+// callers pair it with an empty result.
+func (r *TemporalNamespaceReconciler) handleTerminalError(namespace *v1beta1.TemporalNamespace, err error) error {
+	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, v1beta1.SpecValidationFailedReason, err.Error())
+	return reconcile.TerminalError(err)
 }
 
 func (r *TemporalNamespaceReconciler) clusterToNamespacesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {

@@ -351,7 +351,7 @@ func (r *TemporalClusterReconciler) handleSuccess(cluster *v1beta1.TemporalClust
 }
 
 func (r *TemporalClusterReconciler) handleSuccessWithRequeue(cluster *v1beta1.TemporalCluster, requeueAfter time.Duration) (ctrl.Result, error) {
-	v1beta1.SetTemporalClusterReconcileSuccess(cluster, metav1.ConditionTrue, v1beta1.ReconcileSuccessReason, "")
+	v1beta1.MarkTemporalClusterReconcileSucceeded(cluster)
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
@@ -360,7 +360,7 @@ func (r *TemporalClusterReconciler) handleErrorWithRequeue(cluster *v1beta1.Temp
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
-	v1beta1.SetTemporalClusterReconcileError(cluster, metav1.ConditionTrue, reason, err.Error())
+	v1beta1.MarkTemporalClusterReconcileFailed(cluster, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 

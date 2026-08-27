@@ -189,7 +189,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	request, err := temporal.ScheduleToCreateScheduleRequest(schedule)
 	if err != nil {
-		return r.handleTerminalError(ctx, schedule, "Constructing create schedule request", err)
+		return reconcile.Result{}, r.handleTerminalError(ctx, schedule, "Constructing create schedule request", err)
 	}
 
 	_, err = client.WorkflowService().CreateSchedule(ctx, request)
@@ -203,7 +203,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		request, err := temporal.ScheduleToUpdateScheduleRequest(schedule)
 		if err != nil {
-			return r.handleTerminalError(ctx, schedule, "Constructing update schedule request", err)
+			return reconcile.Result{}, r.handleTerminalError(ctx, schedule, "Constructing update schedule request", err)
 		}
 
 		_, err = client.WorkflowService().UpdateSchedule(ctx, request)
@@ -263,7 +263,7 @@ func (r *TemporalScheduleReconciler) handleError(ctx context.Context, schedule *
 }
 
 func (r *TemporalScheduleReconciler) handleSuccessWithRequeue(schedule *v1beta1.TemporalSchedule, requeueAfter time.Duration) (ctrl.Result, error) {
-	v1beta1.SetTemporalScheduleReconcileSuccess(schedule, metav1.ConditionTrue, v1beta1.ReconcileSuccessReason, "")
+	v1beta1.MarkTemporalScheduleReconcileSucceeded(schedule)
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
@@ -278,18 +278,21 @@ func (r *TemporalScheduleReconciler) handleErrorWithRequeue(ctx context.Context,
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
-	v1beta1.SetTemporalScheduleReconcileError(schedule, metav1.ConditionTrue, reason, err.Error())
+	v1beta1.MarkTemporalScheduleReconcileFailed(schedule, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 
 // handleTerminalError reports an error the schedule's own spec causes. controller-runtime records
 // it without requeueing: a retry would fail identically, and the generation change from a corrected
 // spec re-enqueues the schedule anyway, so backing off would only add noise.
-func (r *TemporalScheduleReconciler) handleTerminalError(ctx context.Context, schedule *v1beta1.TemporalSchedule, action string, err error) (ctrl.Result, error) {
+//
+// Unlike the handlers above it returns no ctrl.Result, because there is no requeue for it to carry:
+// callers pair it with an empty result.
+func (r *TemporalScheduleReconciler) handleTerminalError(ctx context.Context, schedule *v1beta1.TemporalSchedule, action string, err error) error {
 	log.FromContext(ctx).Error(err, action)
 
-	v1beta1.SetTemporalScheduleReconcileError(schedule, metav1.ConditionTrue, v1beta1.SpecValidationFailedReason, err.Error())
-	return reconcile.Result{}, reconcile.TerminalError(err)
+	v1beta1.MarkTemporalScheduleReconcileFailed(schedule, v1beta1.SpecValidationFailedReason, err.Error())
+	return reconcile.TerminalError(err)
 }
 
 func (r *TemporalScheduleReconciler) namespaceToSchedulesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {
