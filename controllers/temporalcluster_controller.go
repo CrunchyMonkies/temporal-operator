@@ -156,7 +156,10 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// target: owner references handle that case, and an unnecessary finalizer only creates a way
 	// for resources to get stuck.
 	if !target.IsLocal() {
-		controllerutil.AddFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+		if err := addFinalizer(ctx, r.Client, cluster, targetcluster.TargetClusterCleanupFinalizer); err != nil {
+			logger.Error(err, "Can't add the target cluster cleanup finalizer")
+			return r.handleErrorWithRequeue(cluster, v1beta1.ReconcileErrorReason, err, 0)
+		}
 
 		err := r.Resolver.RegisterWatches(ctx, target, r.controller, temporalClusterKind)
 		if err != nil {
@@ -223,9 +226,13 @@ func (r *TemporalClusterReconciler) reconcileDelete(ctx context.Context, cluster
 		return reconcile.Result{}, err
 	}
 
-	controllerutil.RemoveFinalizer(cluster, targetcluster.TargetClusterCleanupFinalizer)
+	if err := removeFinalizer(ctx, r.Client, cluster, targetcluster.TargetClusterCleanupFinalizer); err != nil {
+		r.Recorder.Event(cluster, corev1.EventTypeWarning, "ProcessingError", err.Error())
 
-	return reconcile.Result{}, r.Update(ctx, cluster)
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{}, nil
 }
 
 func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temporalCluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
@@ -344,7 +351,7 @@ func (r *TemporalClusterReconciler) handleSuccess(cluster *v1beta1.TemporalClust
 }
 
 func (r *TemporalClusterReconciler) handleSuccessWithRequeue(cluster *v1beta1.TemporalCluster, requeueAfter time.Duration) (ctrl.Result, error) {
-	v1beta1.SetTemporalClusterReconcileSuccess(cluster, metav1.ConditionTrue, v1beta1.ReconcileSuccessReason, "")
+	v1beta1.MarkTemporalClusterReconcileSucceeded(cluster)
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
@@ -353,7 +360,7 @@ func (r *TemporalClusterReconciler) handleErrorWithRequeue(cluster *v1beta1.Temp
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
-	v1beta1.SetTemporalClusterReconcileError(cluster, metav1.ConditionTrue, reason, err.Error())
+	v1beta1.MarkTemporalClusterReconcileFailed(cluster, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
 }
 

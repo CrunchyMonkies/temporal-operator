@@ -49,6 +49,9 @@ type TemporalNamespaceReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Resolver *targetcluster.Resolver
+	// APIReader bypasses the client's informer cache, for the reads that have to be authoritative
+	// rather than merely fast. See confirmLive.
+	APIReader client.Reader
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalnamespaces,verbs=get;list;watch;create;update;patch;delete
@@ -91,7 +94,10 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			// Two ways to get here:
 			//  - TemporalCluster has not been created yet. In this case, if the TemporalNamespace is deleted, no point in waiting for the TemporalCluster to be healthy.
 			//  - TemporalCluster existed at some point, but now is deleted. In this case, the underlying namespace in the Temporal server is already gone.
-			controllerutil.RemoveFinalizer(namespace, deletionFinalizer)
+			if err := removeFinalizer(ctx, r.Client, namespace, deletionFinalizer); err != nil {
+				return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
+			}
+
 			return reconcile.Result{}, nil
 		}
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -123,7 +129,15 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Ensure the namespace have a deletion marker if the AllowDeletion is set to true.
-	r.ensureFinalizer(namespace)
+	if err := r.ensureFinalizer(ctx, namespace); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The namespace was deleted mid-reconciliation: nothing left to finalize, and no
+			// status left to report a failure through.
+			return reconcile.Result{}, nil
+		}
+
+		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
+	}
 
 	client, err := temporal.GetClusterNamespaceClient(ctx, target.Client, cluster)
 	if err != nil {
@@ -131,6 +145,18 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 	}
 	defer client.Close()
+
+	// Registering the namespace is the point of no return: nothing in this reconciliation, and no
+	// reconciliation after it, would remove one created for a namespace that is already gone.
+	live, err := confirmLive(ctx, r.APIReader, namespace)
+	if err != nil {
+		return r.handleError(namespace, v1beta1.ReconcileErrorReason, fmt.Errorf("can't confirm the namespace still exists: %w", err))
+	}
+	if !live {
+		logger.Info("Namespace was deleted mid-reconciliation, skipping registration")
+
+		return reconcile.Result{}, nil
+	}
 
 	err = client.Register(ctx, temporal.NamespaceToRegisterNamespaceRequest(cluster, namespace))
 	if err != nil {
@@ -157,6 +183,10 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		if err := temporal.ReconcileSearchAttributes(ctx, clusterClient.OperatorService(), namespace); err != nil {
 			err = fmt.Errorf("can't reconcile search attributes for \"%s\" namespace: %w", namespace.GetName(), err)
+			if errors.Is(err, temporal.ErrInvalidSearchAttributes) {
+				return reconcile.Result{}, r.handleTerminalError(namespace, err)
+			}
+
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 	}
@@ -169,10 +199,20 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 // ensureFinalizer ensures the deletion finalizer is set on the object if the user allowed namespace deletion using the CRD.
-func (r *TemporalNamespaceReconciler) ensureFinalizer(namespace *v1beta1.TemporalNamespace) {
-	if namespace.ObjectMeta.DeletionTimestamp.IsZero() && namespace.Spec.AllowDeletion {
-		_ = controllerutil.AddFinalizer(namespace, deletionFinalizer)
+func (r *TemporalNamespaceReconciler) ensureFinalizer(ctx context.Context, namespace *v1beta1.TemporalNamespace) error {
+	if !namespace.ObjectMeta.DeletionTimestamp.IsZero() {
+		return nil
 	}
+
+	if namespace.Spec.AllowDeletion {
+		return addFinalizer(ctx, r.Client, namespace, deletionFinalizer)
+	}
+
+	// Turning allowDeletion back off has to drop the finalizer this controller previously added,
+	// or the namespace can never be deleted again. Strict: the reconciliation goes on to register
+	// the namespace after this, so a namespace deleted mid-cycle has to reach the caller rather
+	// than be reported as a successful no-op.
+	return removeFinalizerStrict(ctx, r.Client, namespace, deletionFinalizer)
 }
 
 func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
@@ -198,8 +238,7 @@ func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context
 		}
 	}
 
-	_ = controllerutil.RemoveFinalizer(namespace, deletionFinalizer)
-	return nil
+	return removeFinalizer(ctx, r.Client, namespace, deletionFinalizer)
 }
 
 func (r *TemporalNamespaceReconciler) handleSuccess(namespace *v1beta1.TemporalNamespace) (ctrl.Result, error) {
@@ -211,16 +250,30 @@ func (r *TemporalNamespaceReconciler) handleError(namespace *v1beta1.TemporalNam
 }
 
 func (r *TemporalNamespaceReconciler) handleSuccessWithRequeue(namespace *v1beta1.TemporalNamespace, requeueAfter time.Duration) (ctrl.Result, error) {
-	v1beta1.SetTemporalNamespaceReconcileSuccess(namespace, metav1.ConditionTrue, v1beta1.ReconcileSuccessReason, "")
+	v1beta1.MarkTemporalNamespaceReconcileSucceeded(namespace)
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
 }
 
+// handleErrorWithRequeue reports the error to the caller as well as through the status: the
+// predicates only fire on a spec change, so a swallowed error leaves nothing to bring the object
+// back, and controller-runtime needs the error to rate-limit the retry.
 func (r *TemporalNamespaceReconciler) handleErrorWithRequeue(namespace *v1beta1.TemporalNamespace, reason string, err error, requeueAfter time.Duration) (ctrl.Result, error) {
 	if reason == "" {
 		reason = v1beta1.ReconcileErrorReason
 	}
-	v1beta1.SetTemporalNamespaceReconcileError(namespace, metav1.ConditionTrue, reason, err.Error())
-	return reconcile.Result{RequeueAfter: requeueAfter}, nil
+	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, reason, err.Error())
+	return reconcile.Result{RequeueAfter: requeueAfter}, err
+}
+
+// handleTerminalError reports an error the namespace's own spec causes. controller-runtime records
+// it without requeueing: a retry would fail identically, and the generation change from a corrected
+// spec re-enqueues the namespace anyway, so backing off would only add noise.
+//
+// Unlike the handlers above it returns no ctrl.Result, because there is no requeue for it to carry:
+// callers pair it with an empty result.
+func (r *TemporalNamespaceReconciler) handleTerminalError(namespace *v1beta1.TemporalNamespace, err error) error {
+	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, v1beta1.SpecValidationFailedReason, err.Error())
+	return reconcile.TerminalError(err)
 }
 
 func (r *TemporalNamespaceReconciler) clusterToNamespacesMapfunc(ctx context.Context, o client.Object) []reconcile.Request {
@@ -255,6 +308,10 @@ func (r *TemporalNamespaceReconciler) clusterToNamespacesMapfunc(ctx context.Con
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *TemporalNamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
+
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1beta1.TemporalNamespace{}, clusterRefField, func(rawObj client.Object) []string {
 		temporalNamespace := rawObj.(*v1beta1.TemporalNamespace)
 		if temporalNamespace.Spec.ClusterRef.Name == "" {

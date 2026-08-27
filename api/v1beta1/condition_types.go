@@ -19,6 +19,9 @@ const (
 	ProgressingReason string = "Progressing"
 	// ReconcileErrorReason signals a unknown reconciliation error.
 	ReconcileErrorReason string = "LastReconcileCycleFailed"
+	// SpecValidationFailedReason signals a reconciliation error the spec itself causes, which no
+	// retry can clear. The controller stops retrying and waits for the spec to change.
+	SpecValidationFailedReason string = "SpecValidationFailed"
 	// ReconcileSuccessReason signals a successful reconciliation.
 	ReconcileSuccessReason string = "LastReconcileCycleSucceded"
 	// ServicesReadyReason signals all temporal services for the cluster are in ready state.
@@ -178,4 +181,59 @@ func SetTemporalScheduleReconcileError(s *TemporalSchedule, status metav1.Condit
 		Message:            message,
 	}
 	apimeta.SetStatusCondition(&s.Status.Conditions, condition)
+}
+
+// The Mark* helpers below write a whole reconcile outcome at once. ReconcileError, ReconcileSuccess
+// and — where the reconciler owns it — Ready describe a single fact between them, so writing only
+// one leaves the others asserting the opposite: an object that recovered would keep reporting
+// ReconcileError=True, and one that broke would keep reporting ReconcileSuccess=True and Ready=True.
+
+// MarkTemporalClusterReconcileSucceeded records a successful reconciliation.
+//
+// Ready is not touched: the cluster's readiness comes from its services actually running, not from
+// whether the last reconcile cycle completed, and updateTemporalClusterStatus already writes it both
+// ways every cycle.
+func MarkTemporalClusterReconcileSucceeded(c *TemporalCluster) {
+	SetTemporalClusterReconcileSuccess(c, metav1.ConditionTrue, ReconcileSuccessReason, "")
+	SetTemporalClusterReconcileError(c, metav1.ConditionFalse, ReconcileSuccessReason, "")
+}
+
+// MarkTemporalClusterReconcileFailed records a failed reconciliation. Ready is left alone, for the
+// reason given on MarkTemporalClusterReconcileSucceeded.
+func MarkTemporalClusterReconcileFailed(c *TemporalCluster, reason, message string) {
+	SetTemporalClusterReconcileError(c, metav1.ConditionTrue, reason, message)
+	SetTemporalClusterReconcileSuccess(c, metav1.ConditionFalse, reason, message)
+}
+
+// MarkTemporalNamespaceReconcileSucceeded records a successful reconciliation.
+//
+// Ready is not asserted here. The reconciler's single success path sets it on the line before it
+// calls through to this, with a more specific reason than this function could give it.
+func MarkTemporalNamespaceReconcileSucceeded(n *TemporalNamespace) {
+	SetTemporalNamespaceReconcileSuccess(n, metav1.ConditionTrue, ReconcileSuccessReason, "")
+	SetTemporalNamespaceReconcileError(n, metav1.ConditionFalse, ReconcileSuccessReason, "")
+}
+
+// MarkTemporalNamespaceReconcileFailed records a failed reconciliation, Ready included: a namespace
+// gates whether its schedules reconcile at all, so leaving it asserting readiness after a failure
+// lets schedules run against a namespace whose state in Temporal is no longer known.
+func MarkTemporalNamespaceReconcileFailed(n *TemporalNamespace, reason, message string) {
+	SetTemporalNamespaceReconcileError(n, metav1.ConditionTrue, reason, message)
+	SetTemporalNamespaceReconcileSuccess(n, metav1.ConditionFalse, reason, message)
+	SetTemporalNamespaceReady(n, metav1.ConditionFalse, reason, message)
+}
+
+// MarkTemporalScheduleReconcileSucceeded records a successful reconciliation.
+//
+// Ready is not asserted here, for the same reason as the namespace variant.
+func MarkTemporalScheduleReconcileSucceeded(s *TemporalSchedule) {
+	SetTemporalScheduleReconcileSuccess(s, metav1.ConditionTrue, ReconcileSuccessReason, "")
+	SetTemporalScheduleReconcileError(s, metav1.ConditionFalse, ReconcileSuccessReason, "")
+}
+
+// MarkTemporalScheduleReconcileFailed records a failed reconciliation, Ready included.
+func MarkTemporalScheduleReconcileFailed(s *TemporalSchedule, reason, message string) {
+	SetTemporalScheduleReconcileError(s, metav1.ConditionTrue, reason, message)
+	SetTemporalScheduleReconcileSuccess(s, metav1.ConditionFalse, reason, message)
+	SetTemporalScheduleReady(s, metav1.ConditionFalse, reason, message)
 }
