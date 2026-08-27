@@ -27,3 +27,7 @@ out
 *~
 .vscode
 .DS_Store
+
+# agent session state
+.omc/
+.serena/
