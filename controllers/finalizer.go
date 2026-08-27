@@ -20,6 +20,7 @@ package controllers
 import (
 	"context"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -53,4 +54,24 @@ func patchFinalizers(ctx context.Context, c client.Client, obj client.Object, mu
 	}
 
 	return c.Patch(ctx, patched, client.MergeFromWithOptions(obj, client.MergeFromWithOptimisticLock{}))
+}
+
+// confirmLive reports whether obj is still worth acting for: present, and not terminating. Callers
+// use it immediately before a change they cannot take back outside the cluster.
+//
+// It reads through an uncached reader deliberately. A reconciler's own client is backed by an
+// informer cache that may not have observed a deletion yet, and the finalizer machinery above is no
+// help here either: an object carrying no finalizer leaves patchFinalizers with nothing to write,
+// so no request reaches the API server and the deletion goes unnoticed.
+func confirmLive(ctx context.Context, r client.Reader, obj client.Object) (bool, error) {
+	fresh := obj.DeepCopyObject().(client.Object)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(obj), fresh); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return fresh.GetDeletionTimestamp().IsZero(), nil
 }

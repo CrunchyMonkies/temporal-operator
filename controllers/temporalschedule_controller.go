@@ -50,6 +50,9 @@ type TemporalScheduleReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Resolver *targetcluster.Resolver
+	// APIReader bypasses the client's informer cache, for the reads that have to be authoritative
+	// rather than merely fast. See confirmLive.
+	APIReader client.Reader
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalschedules,verbs=get;list;watch;create;update;patch;delete
@@ -170,6 +173,18 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Ensuring finalizer", err)
+	}
+
+	// Creating the schedule is the point of no return: nothing in this reconciliation, and no
+	// reconciliation after it, would remove one created for a schedule that is already gone.
+	live, err := confirmLive(ctx, r.APIReader, schedule)
+	if err != nil {
+		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Confirming the schedule still exists", err)
+	}
+	if !live {
+		logger.Info("Schedule was deleted mid-reconciliation, skipping creation")
+
+		return reconcile.Result{}, nil
 	}
 
 	request, err := temporal.ScheduleToCreateScheduleRequest(schedule)
@@ -309,6 +324,10 @@ func (r *TemporalScheduleReconciler) namespaceToSchedulesMapfunc(ctx context.Con
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *TemporalScheduleReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
+
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1beta1.TemporalSchedule{}, namespaceRefField, func(rawObj client.Object) []string {
 		temporalSchedule := rawObj.(*v1beta1.TemporalSchedule)
 		if temporalSchedule.Spec.NamespaceRef.Name == "" {

@@ -344,6 +344,8 @@ var _ = Describe("Strict finalizer removal", func() {
 		Expect(apierrors.IsNotFound(reconciler.ensureFinalizer(ctx, snapshot))).To(BeTrue())
 	})
 
+	// Nothing is written when there is no finalizer diff, so this branch has no API call to learn
+	// the deletion from. confirmLive covers it before the reconciliation reaches Temporal.
 	It("cannot see a mid-cycle deletion when there is no finalizer to drop", func() {
 		schedule := createTestSchedule(ctx, "ensure-finalizer-no-write-no-signal", false)
 		key := client.ObjectKeyFromObject(schedule)
@@ -392,6 +394,91 @@ var _ = Describe("Reconcile error handling", func() {
 
 		Expect(err).To(MatchError("boom"))
 		Expect(meta.IsStatusConditionTrue(schedule.Status.Conditions, v1beta1.ReconcileErrorCondition)).To(BeTrue())
+	})
+})
+
+// failingReader stands in for an API server that cannot be reached, rather than one reporting a
+// deletion.
+type failingReader struct {
+	client.Reader
+	err error
+}
+
+func (r *failingReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return r.err
+}
+
+var _ = Describe("Live object confirmation", func() {
+	ctx := context.Background()
+
+	It("confirms an object that is still there", func() {
+		schedule := createTestSchedule(ctx, "confirm-live-present", false)
+
+		Expect(confirmLive(ctx, k8sClient, schedule)).To(BeTrue())
+	})
+
+	// This is the shape of the race: the reconciliation holds the object it read at the top of the
+	// cycle, and the deletion lands while it is still working.
+	It("reports an object deleted after the reconciliation read it", func() {
+		schedule := createTestSchedule(ctx, "confirm-live-deleted-mid-cycle", false)
+		snapshot := getTestSchedule(ctx, client.ObjectKeyFromObject(schedule))
+
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+
+		Expect(confirmLive(ctx, k8sClient, snapshot)).To(BeFalse())
+	})
+
+	// A finalizer keeps the object present, so an existence check alone would still call it live.
+	It("reports an object that is present but terminating", func() {
+		schedule := createTestSchedule(ctx, "confirm-live-terminating", false, deletionFinalizer)
+		key := client.ObjectKeyFromObject(schedule)
+		snapshot := getTestSchedule(ctx, key)
+
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+		Expect(getTestSchedule(ctx, key).DeletionTimestamp.IsZero()).To(BeFalse())
+
+		Expect(confirmLive(ctx, k8sClient, snapshot)).To(BeFalse())
+	})
+
+	It("does not read an unreachable API server as a deletion", func() {
+		schedule := createTestSchedule(ctx, "confirm-live-read-failure", false)
+
+		reader := &failingReader{err: apierrors.NewInternalError(errors.New("boom"))}
+		live, err := confirmLive(ctx, reader, schedule)
+		Expect(err).To(HaveOccurred())
+		Expect(live).To(BeFalse())
+	})
+
+	// The pair that closes the gap: ensureFinalizer has nothing to write and so reports success,
+	// while confirmLive asks the API server directly and sees the object is gone.
+	It("sees the deletion that ensureFinalizer cannot", func() {
+		schedule := createTestSchedule(ctx, "confirm-live-covers-finalizer-blind-spot", false)
+		snapshot := getTestSchedule(ctx, client.ObjectKeyFromObject(schedule))
+
+		Expect(k8sClient.Delete(ctx, schedule)).To(Succeed())
+
+		reconciler := &TemporalScheduleReconciler{Client: k8sClient, APIReader: k8sClient}
+		Expect(reconciler.ensureFinalizer(ctx, snapshot)).To(Succeed())
+		Expect(confirmLive(ctx, reconciler.APIReader, snapshot)).To(BeFalse())
+	})
+})
+
+var _ = Describe("Stale deletion finalizers", func() {
+	ctx := context.Background()
+
+	// Turning allowDeletion back off has to drop the finalizer this controller added, or the
+	// namespace can never be deleted again.
+	It("are dropped from a namespace once deletion is no longer allowed", func() {
+		namespace := createTestNamespace(ctx, "namespace-stale-finalizer-dropped", deletionFinalizer)
+		key := client.ObjectKeyFromObject(namespace)
+
+		current := getTestNamespace(ctx, key)
+		current.Spec.AllowDeletion = false
+
+		reconciler := &TemporalNamespaceReconciler{Client: k8sClient}
+		Expect(reconciler.ensureFinalizer(ctx, current)).To(Succeed())
+
+		Expect(getTestNamespace(ctx, key).Finalizers).To(BeEmpty())
 	})
 })
 

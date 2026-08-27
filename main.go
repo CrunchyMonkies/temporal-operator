@@ -204,18 +204,20 @@ func main() {
 	}
 
 	if err = (&controllers.TemporalNamespaceReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Resolver: resolver,
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Resolver:  resolver,
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
 	}
 
 	if err = (&controllers.TemporalScheduleReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Resolver: resolver,
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Resolver:  resolver,
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Schedule")
 		os.Exit(1)
