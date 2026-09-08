@@ -106,7 +106,12 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Namespace lookup", err)
 	}
 
-	if !namespace.IsReady() {
+	// A schedule marked for deletion goes past the readiness gates below. Its namespace and its
+	// cluster are commonly deleted in the same breath, and waiting for either to be healthy again
+	// would leave the schedule holding its finalizer forever, deletable only by hand.
+	deleting := !schedule.ObjectMeta.DeletionTimestamp.IsZero()
+
+	if !deleting && !namespace.IsReady() {
 		logger.Info("Skipping schedule reconciliation until referenced namespace is ready")
 
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
@@ -130,7 +135,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Cluster lookup", err)
 	}
 
-	if !cluster.IsReady() {
+	if !deleting && !cluster.IsReady() {
 		logger.Info("Skipping schedule reconciliation until referenced cluster is ready")
 
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
@@ -141,6 +146,18 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
 	if err != nil {
 		return r.handleError(ctx, schedule, v1beta1.TargetClusterResolutionFailedReason, "Resolving target cluster", err)
+	}
+
+	// Checked before the client is built, so it also releases a schedule whose frontend can no
+	// longer be dialled at all.
+	if deleting && forceDeleteRequested(schedule) {
+		logger.Info("Force-deleting schedule, skipping temporal-side deletion", "schedule", schedule.GetName())
+
+		if err := removeFinalizer(ctx, r.Client, schedule, deletionFinalizer); err != nil {
+			return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err)
+		}
+
+		return reconcile.Result{}, nil
 	}
 
 	clientOpts := func(opt *temporalclient.Options) {
@@ -154,7 +171,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	defer client.Close()
 
 	// Check if the resource has been marked for deletion
-	if !schedule.ObjectMeta.DeletionTimestamp.IsZero() {
+	if deleting {
 		logger.Info("Deleting schedule")
 
 		err := r.ensureScheduleDeleted(ctx, schedule, &client)

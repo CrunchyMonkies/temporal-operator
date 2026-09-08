@@ -75,3 +75,9 @@ func confirmLive(ctx context.Context, r client.Reader, obj client.Object) (bool,
 
 	return fresh.GetDeletionTimestamp().IsZero(), nil
 }
+
+// forceDeleteRequested reports whether the user asked for obj's deletion finalizer to be dropped
+// without the corresponding temporal-side deletion. See forceDeleteAnnotation.
+func forceDeleteRequested(obj client.Object) bool {
+	return obj.GetAnnotations()[forceDeleteAnnotation] == "true"
+}

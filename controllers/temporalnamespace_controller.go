@@ -25,6 +25,7 @@ import (
 
 	"github.com/alexandrevilain/controller-tools/pkg/patch"
 	"go.temporal.io/api/serviceerror"
+	temporalclient "go.temporal.io/sdk/client"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -52,6 +53,33 @@ type TemporalNamespaceReconciler struct {
 	// APIReader bypasses the client's informer cache, for the reads that have to be authoritative
 	// rather than merely fast. See confirmLive.
 	APIReader client.Reader
+	// clusterClient builds the temporal client the deletion path talks to the frontend through.
+	// Nil means temporal.GetClusterClient; tests replace it to exercise the frontend's answers
+	// without a frontend.
+	clusterClient func(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster) (temporalclient.Client, error)
+	// namespaceClient builds the temporal namespace client the registration path uses. Nil means
+	// temporal.GetClusterNamespaceClient; tests replace it for the same reason as clusterClient.
+	namespaceClient func(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster) (temporalclient.NamespaceClient, error)
+}
+
+// errDeletionBlocked marks a deletion the temporal server refused for a reason no retry can clear.
+// The reconciliation reports it as a terminal error rather than backing off forever against an
+// answer that will not change.
+var errDeletionBlocked = errors.New("namespace deletion blocked by the temporal server")
+
+// deletionRefused reports whether the server refused the deletion itself, as opposed to failing to
+// carry it out. None of these clear on their own: the operator lacks the permission, sends a
+// request the server rejects, or talks to a server that does not implement namespace deletion.
+func deletionRefused(err error) bool {
+	var (
+		permissionDenied *serviceerror.PermissionDenied
+		invalidArgument  *serviceerror.InvalidArgument
+		unimplemented    *serviceerror.Unimplemented
+	)
+
+	return errors.As(err, &permissionDenied) ||
+		errors.As(err, &invalidArgument) ||
+		errors.As(err, &unimplemented)
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalnamespaces,verbs=get;list;watch;create;update;patch;delete
@@ -111,21 +139,29 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.handleError(namespace, v1beta1.TargetClusterResolutionFailedReason, err)
 	}
 
-	if !cluster.IsReady() {
-		logger.Info("Skipping namespace reconciliation until referenced cluster is ready")
-
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-	// Check if the resource has been marked for deletion
+	// Deletion runs ahead of the readiness gate below. A namespace whose cluster exists but is
+	// unhealthy still has to be deletable — deleting a namespace and its cluster together is the
+	// ordinary teardown order — or it holds its finalizer forever and the only way out is editing
+	// metadata by hand. ensureNamespaceDeleted needs the cluster and its target, both resolved
+	// above; it does not need the cluster to be ready.
 	if !namespace.ObjectMeta.DeletionTimestamp.IsZero() {
 		logger.Info("Deleting namespace")
 
 		err := r.ensureNamespaceDeleted(ctx, namespace, cluster, target)
 		if err != nil {
+			if errors.Is(err, errDeletionBlocked) {
+				return reconcile.Result{}, r.handleDeletionBlocked(namespace, err)
+			}
+
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 		return reconcile.Result{}, nil
+	}
+
+	if !cluster.IsReady() {
+		logger.Info("Skipping namespace reconciliation until referenced cluster is ready")
+
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	// Ensure the namespace have a deletion marker if the AllowDeletion is set to true.
@@ -139,7 +175,7 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 	}
 
-	client, err := temporal.GetClusterNamespaceClient(ctx, target.Client, cluster)
+	client, err := r.getClusterNamespaceClient(ctx, target.Client, cluster)
 	if err != nil {
 		err = fmt.Errorf("can't create cluster namespace client: %w", err)
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -215,6 +251,25 @@ func (r *TemporalNamespaceReconciler) ensureFinalizer(ctx context.Context, names
 	return removeFinalizerStrict(ctx, r.Client, namespace, deletionFinalizer)
 }
 
+// getClusterClient dials the cluster's frontend, through the test seam when one is set.
+func (r *TemporalNamespaceReconciler) getClusterClient(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster) (temporalclient.Client, error) {
+	if r.clusterClient != nil {
+		return r.clusterClient(ctx, c, cluster)
+	}
+
+	return temporal.GetClusterClient(ctx, c, cluster)
+}
+
+// getClusterNamespaceClient dials the cluster's frontend for namespace operations, through the test
+// seam when one is set.
+func (r *TemporalNamespaceReconciler) getClusterNamespaceClient(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster) (temporalclient.NamespaceClient, error) {
+	if r.namespaceClient != nil {
+		return r.namespaceClient(ctx, c, cluster)
+	}
+
+	return temporal.GetClusterNamespaceClient(ctx, c, cluster)
+}
+
 func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
 	logger := log.FromContext(ctx)
 
@@ -222,7 +277,15 @@ func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context
 		return nil
 	}
 
-	client, err := temporal.GetClusterClient(ctx, target.Client, cluster)
+	// Checked before the client is built, so it also releases a namespace whose frontend can no
+	// longer be dialled at all.
+	if forceDeleteRequested(namespace) {
+		logger.Info("Force-deleting namespace, skipping temporal-side deletion", "namespace", namespace.GetName())
+
+		return removeFinalizer(ctx, r.Client, namespace, deletionFinalizer)
+	}
+
+	client, err := r.getClusterClient(ctx, target.Client, cluster)
 	if err != nil {
 		return fmt.Errorf("can't create cluster client: %w", err)
 	}
@@ -231,9 +294,14 @@ func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context
 	_, err = client.OperatorService().DeleteNamespace(ctx, temporal.NamespaceToDeleteNamespaceRequest(namespace))
 	if err != nil {
 		var namespaceNotFoundError *serviceerror.NamespaceNotFound
-		if errors.As(err, &namespaceNotFoundError) {
+		switch {
+		case errors.As(err, &namespaceNotFoundError):
+			// Already gone on the server — the point of the deletion — so the CRD-side cleanup
+			// below is all that is left to do.
 			logger.Info("try to delete but not found", "namespace", namespace.GetName())
-		} else {
+		case deletionRefused(err):
+			return fmt.Errorf("%w: can't delete \"%s\" namespace: %w", errDeletionBlocked, namespace.GetName(), err)
+		default:
 			return fmt.Errorf("can't delete \"%s\" namespace: %w", namespace.GetName(), err)
 		}
 	}
@@ -263,6 +331,20 @@ func (r *TemporalNamespaceReconciler) handleErrorWithRequeue(namespace *v1beta1.
 	}
 	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
+}
+
+// handleDeletionBlocked reports a deletion the server refused. Retrying it only rewrites the same
+// status on the same terminating object, so the reconciliation stops and says so, naming the way
+// out: the namespace stays terminating until the server accepts the deletion or the user asks for
+// the finalizer to be dropped without it.
+func (r *TemporalNamespaceReconciler) handleDeletionBlocked(namespace *v1beta1.TemporalNamespace, err error) error {
+	message := fmt.Sprintf(
+		"%s. Fix the cause on the temporal server, or set the %s annotation to \"true\" to drop the finalizer without deleting the namespace on the server.",
+		err.Error(), forceDeleteAnnotation,
+	)
+	v1beta1.MarkTemporalNamespaceReconcileFailed(namespace, v1beta1.DeletionBlockedReason, message)
+
+	return reconcile.TerminalError(err)
 }
 
 // handleTerminalError reports an error the namespace's own spec causes. controller-runtime records
