@@ -1212,6 +1212,32 @@ func (c *TemporalCluster) MTLSWithCertManagerEnabled() bool {
 		c.Spec.MTLS.Provider == CertManagerMTLSProvider
 }
 
+// AdminToolsImage returns the admin tools image the cluster's resources should
+// run. It honors the user-provided spec.admintools.image and
+// spec.admintools.version, only falling back to the operator's defaults when
+// they are unset.
+//
+// Every resource running admin tools (the admin tools deployment and the schema
+// setup job) resolves its image through this helper so they can't drift apart.
+func (c *TemporalCluster) AdminToolsImage() string {
+	image := defaultTemporalAdmintoolsImage
+	tag := ""
+	if c.Spec.Version != nil {
+		tag = version.DefaultAdminToolTag(c.Spec.Version)
+	}
+
+	if c.Spec.AdminTools != nil {
+		if c.Spec.AdminTools.Image != "" {
+			image = c.Spec.AdminTools.Image
+		}
+		if c.Spec.AdminTools.Version != "" {
+			tag = c.Spec.AdminTools.Version
+		}
+	}
+
+	return fmt.Sprintf("%s:%s", image, tag)
+}
+
 // ChildResourceName returns child resource name using the cluster's name.
 func (c *TemporalCluster) ChildResourceName(resource string) string {
 	return fmt.Sprintf("%s-%s", c.Name, resource)
