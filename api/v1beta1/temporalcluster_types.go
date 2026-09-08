@@ -998,14 +998,30 @@ type S3Archiver struct {
 	Endpoint *string `json:"endpoint,omitempty"`
 	// Use RoleName if you want the temporal service account
 	// to assume an AWS Identity and Access Management (IAM) role.
+	// This is the IRSA path on EKS: the operator annotates the service accounts of the services
+	// which access the bucket with eks.amazonaws.com/role-arn.
 	// +optional
 	RoleName *string `json:"roleName,omitempty"`
 	// Use credentials if you want to use aws credentials from secret.
 	// +optional
 	Credentials *S3Credentials `json:"credentials,omitempty"`
+	// Use UseDefaultCredentials to let the AWS SDK resolve credentials from its default chain,
+	// as provided by the environment the temporal pods run in: EKS Pod Identity, an EC2 instance
+	// profile, or any other credentials the environment injects.
+	// It is mutually exclusive with RoleName and Credentials, and reaching for ambient credentials
+	// has to be asked for: without any of the three, the cluster is rejected rather than silently
+	// picking up whatever credentials happen to be around.
+	// +optional
+	UseDefaultCredentials bool `json:"useDefaultCredentials,omitempty"`
 	// Use s3ForcePathStyle if you want to use s3 path style.
 	// +optional
 	S3ForcePathStyle bool `json:"s3ForcePathStyle"`
+}
+
+// UsesIRSA reports whether the archiver relies on IAM Roles for Service Accounts, which the
+// operator sets up by annotating the service accounts of the services that access the bucket.
+func (a *S3Archiver) UsesIRSA() bool {
+	return a != nil && a.RoleName != nil
 }
 
 type S3Credentials struct {

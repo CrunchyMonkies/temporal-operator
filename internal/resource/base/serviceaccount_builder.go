@@ -23,6 +23,7 @@ import (
 	"github.com/alexandrevilain/controller-tools/pkg/resource"
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/metadata"
+	"go.temporal.io/server/common/primitives"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,6 +35,17 @@ const (
 	gcpServiceAccountAnnotation = "iam.gke.io/gcp-service-account"
 	awsRoleArnAnnotation        = "eks.amazonaws.com/role-arn"
 )
+
+// s3ArchivalServices are the temporal services which talk to the s3 archival bucket: the history
+// service writes archives, and the frontends read them back. They are the only ones building an
+// archiver provider in the temporal server, so annotating any other service account with an IAM
+// role only forces IRSA onto pods that have no use for it — including the schema setup jobs, which
+// share this builder.
+var s3ArchivalServices = map[string]struct{}{
+	string(primitives.FrontendService):         {},
+	string(primitives.InternalFrontendService): {},
+	string(primitives.HistoryService):          {},
+}
 
 var _ resource.Builder = (*ServiceAccountBuilder)(nil)
 
@@ -66,11 +78,19 @@ func (b *ServiceAccountBuilder) Enabled() bool {
 	return isBuilderEnabled(b.instance, b.serviceName)
 }
 
+// needsS3Access reports whether the service this service account belongs to reads from or writes
+// to the archival bucket.
+func (b *ServiceAccountBuilder) needsS3Access() bool {
+	_, ok := s3ArchivalServices[b.serviceName]
+	return ok
+}
+
 func (b *ServiceAccountBuilder) getIAMAnnotations() map[string]string {
 	annotations := make(map[string]string)
 	if b.instance.Spec.Archival.IsEnabled() &&
-		b.instance.Spec.Archival.Provider.S3 != nil &&
-		b.instance.Spec.Archival.Provider.S3.RoleName != nil {
+		b.instance.Spec.Archival.Provider != nil &&
+		b.instance.Spec.Archival.Provider.S3.UsesIRSA() &&
+		b.needsS3Access() {
 		annotations[awsRoleArnAnnotation] = *b.instance.Spec.Archival.Provider.S3.RoleName
 	}
 	if b.instance.Spec.Persistence.DefaultStore.SQL != nil &&

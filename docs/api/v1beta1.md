@@ -2676,7 +2676,9 @@ string
 <td>
 <em>(Optional)</em>
 <p>Use RoleName if you want the temporal service account
-to assume an AWS Identity and Access Management (IAM) role.</p>
+to assume an AWS Identity and Access Management (IAM) role.
+This is the IRSA path on EKS: the operator annotates the service accounts of the services
+which access the bucket with eks.amazonaws.com/role-arn.</p>
 </td>
 </tr>
 <tr>
@@ -2691,6 +2693,23 @@ S3Credentials
 <td>
 <em>(Optional)</em>
 <p>Use credentials if you want to use aws credentials from secret.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>useDefaultCredentials</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Use UseDefaultCredentials to let the AWS SDK resolve credentials from its default chain,
+as provided by the environment the temporal pods run in: EKS Pod Identity, an EC2 instance
+profile, or any other credentials the environment injects.
+It is mutually exclusive with RoleName and Credentials, and reaching for ambient credentials
+has to be asked for: without any of the three, the cluster is rejected rather than silently
+picking up whatever credentials happen to be around.</p>
 </td>
 </tr>
 <tr>

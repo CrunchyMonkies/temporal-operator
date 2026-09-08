@@ -28,6 +28,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/internal/resource/mtls/certmanager"
 	temporallog "github.com/alexandrevilain/temporal-operator/pkg/temporal/log"
 	temporalclient "go.temporal.io/sdk/client"
+	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,6 +131,17 @@ func WithTLSConfig(cfg *tls.Config) ClientOption {
 func WithHostPort(hostPort string) ClientOption {
 	return func(opts *temporalclient.Options) {
 		opts.HostPort = hostPort
+	}
+}
+
+// WithCallRecorder records what the server returns for each attempt the client makes, so a call
+// the SDK retries into its deadline can still be reported with the error behind it. See
+// CallRecorder.
+func WithCallRecorder(recorder *CallRecorder) ClientOption {
+	return func(opts *temporalclient.Options) {
+		opts.ConnectionOptions.DialOptions = append(opts.ConnectionOptions.DialOptions,
+			grpc.WithChainUnaryInterceptor(recorder.UnaryClientInterceptor()),
+		)
 	}
 }
 

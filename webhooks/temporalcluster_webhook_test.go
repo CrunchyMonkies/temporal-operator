@@ -28,6 +28,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -167,6 +168,152 @@ func TestValidateCreate(t *testing.T) {
 					PrometheusOperator: true,
 				},
 			},
+		},
+		"works with s3 archival on IRSA": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+						Provider: &v1beta1.ArchivalProvider{
+							S3: &v1beta1.S3Archiver{
+								Region:   "eu-west-1",
+								RoleName: ptr.To("arn:aws:iam::123456789012:role/temporal-archival"),
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+		},
+		"works with s3 archival using the default credential chain": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+						Provider: &v1beta1.ArchivalProvider{
+							S3: &v1beta1.S3Archiver{
+								Region:                "eu-west-1",
+								UseDefaultCredentials: true,
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+		},
+		"error with s3 archival and no credentials at all": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+						Provider: &v1beta1.ArchivalProvider{
+							S3: &v1beta1.S3Archiver{
+								Region: "eu-west-1",
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.archival.provider.s3: Forbidden: Please provide s3 role name if using EKS IRSA, s3 credentials, or ask for the default AWS credential chain if using EKS Pod Identity for s3 provider (spec.archival.provider.s3.roleName, spec.archival.provider.s3.credentials or spec.archival.provider.s3.useDefaultCredentials)",
+		},
+		"error with s3 archival asking for both the default credential chain and a role name": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+						Provider: &v1beta1.ArchivalProvider{
+							S3: &v1beta1.S3Archiver{
+								Region:                "eu-west-1",
+								RoleName:              ptr.To("arn:aws:iam::123456789012:role/temporal-archival"),
+								UseDefaultCredentials: true,
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.archival.provider.s3.useDefaultCredentials: Forbidden: The default AWS credential chain can't be combined with an s3 role name or s3 credentials",
+		},
+		"error with s3 archival asking for both the default credential chain and credentials": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+						Provider: &v1beta1.ArchivalProvider{
+							S3: &v1beta1.S3Archiver{
+								Region:                "eu-west-1",
+								UseDefaultCredentials: true,
+								Credentials: &v1beta1.S3Credentials{
+									AccessKeyIDRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "archival-credentials"},
+										Key:                  "AWS_ACCESS_KEY_ID",
+									},
+									SecretAccessKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: "archival-credentials"},
+										Key:                  "AWS_SECRET_ACCESS_KEY",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.archival.provider.s3.useDefaultCredentials: Forbidden: The default AWS credential chain can't be combined with an s3 role name or s3 credentials",
+		},
+		"error with archival enabled and no provider": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.24.3"),
+					Archival: &v1beta1.ClusterArchivalSpec{
+						Enabled: true,
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.archival.provider: Forbidden: Please provide an archival provider or disable cluster archival",
 		},
 		"error with version not supported": {
 			object: &v1beta1.TemporalCluster{
