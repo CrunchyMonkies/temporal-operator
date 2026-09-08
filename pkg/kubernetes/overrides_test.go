@@ -656,6 +656,180 @@ func TestApplyPodTemplateSpecOverrides(t *testing.T) {
 				},
 			},
 		},
+		// Regression test for https://github.com/alexandrevilain/temporal-operator/issues/793:
+		// the strategic merge sorts the override's env var first, and the merged result used
+		// to be decoded on top of the existing entry, leaving its "value" next to the new
+		// "valueFrom". The override name is chosen so the merged list is reordered: a case
+		// where the override sorts last passes even with the bug.
+		"add env var with valueFrom to existing env": {
+			original: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							Env: []corev1.EnvVar{
+								{
+									Name:  "zzz",
+									Value: "already-here",
+								},
+							},
+						},
+					},
+				},
+			},
+			override: &v1beta1.PodTemplateSpecOverride{
+				Spec: &apiextensionsv1.JSON{
+					Raw: []byte(`{"containers":[{"name":"service","env":[{"name":"aaa","valueFrom":{"secretKeyRef":{"name":"test-secret","key":"test"}}}]}]}`),
+				},
+			},
+			expected: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							Env: []corev1.EnvVar{
+								{
+									Name: "aaa",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "test-secret",
+											},
+											Key: "test",
+										},
+									},
+								},
+								{
+									Name:  "zzz",
+									Value: "already-here",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		// Same regression, on volumes: the added secret volume used to keep the configMap
+		// source of the entry it was decoded over, giving a volume with two sources.
+		"add secret volume to existing volumes": {
+			original: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "zzz-config",
+									MountPath: "/etc/zzz",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "zzz-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "test-config",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			override: &v1beta1.PodTemplateSpecOverride{
+				Spec: &apiextensionsv1.JSON{
+					Raw: []byte(`{"containers":[{"name":"service","volumeMounts":[{"name":"aaa-secret","mountPath":"/etc/aaa"}]}],"volumes":[{"name":"aaa-secret","secret":{"secretName":"test-secret"}}]}`),
+				},
+			},
+			expected: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "aaa-secret",
+									MountPath: "/etc/aaa",
+								},
+								{
+									Name:      "zzz-config",
+									MountPath: "/etc/zzz",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "aaa-secret",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: "test-secret",
+								},
+							},
+						},
+						{
+							Name: "zzz-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "test-config",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		// Replacing the source of an env var that already exists: the strategic merge merges
+		// both elements field by field, so the override has to null the field it replaces.
+		"replace an existing env var value by a valueFrom": {
+			original: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							Env: []corev1.EnvVar{
+								{
+									Name:  "a",
+									Value: "already-here",
+								},
+							},
+						},
+					},
+				},
+			},
+			override: &v1beta1.PodTemplateSpecOverride{
+				Spec: &apiextensionsv1.JSON{
+					Raw: []byte(`{"containers":[{"name":"service","env":[{"name":"a","value":null,"valueFrom":{"secretKeyRef":{"name":"test-secret","key":"test"}}}]}]}`),
+				},
+			},
+			expected: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							Env: []corev1.EnvVar{
+								{
+									Name: "a",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "test-secret",
+											},
+											Key: "test",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, test := range tests {
@@ -663,6 +837,74 @@ func TestApplyPodTemplateSpecOverrides(t *testing.T) {
 			err := kubernetes.ApplyPodTemplateSpecOverrides(test.original, test.override)
 			require.NoError(tt, err)
 			assert.True(tt, equality.Semantic.DeepEqual(test.original, test.expected))
+		})
+	}
+}
+
+func TestApplyPodTemplateSpecOverridesReportsInvalidMerges(t *testing.T) {
+	tests := map[string]struct {
+		original      *corev1.PodTemplateSpec
+		override      *v1beta1.PodTemplateSpecOverride
+		expectedError string
+	}{
+		"env var merged into an existing value": {
+			original: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "service",
+							Env: []corev1.EnvVar{
+								{
+									Name:  "a",
+									Value: "already-here",
+								},
+							},
+						},
+					},
+				},
+			},
+			override: &v1beta1.PodTemplateSpecOverride{
+				Spec: &apiextensionsv1.JSON{
+					Raw: []byte(`{"containers":[{"name":"service","env":[{"name":"a","valueFrom":{"secretKeyRef":{"name":"test-secret","key":"test"}}}]}]}`),
+				},
+			},
+			expectedError: `spec.containers[0].env[0].valueFrom: Invalid value: "a": may not be specified when "value" is not empty`,
+		},
+		"volume merged into an existing source": {
+			original: &corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "a",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "test-config",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			override: &v1beta1.PodTemplateSpecOverride{
+				Spec: &apiextensionsv1.JSON{
+					Raw: []byte(`{"volumes":[{"name":"a","secret":{"secretName":"test-secret"}}]}`),
+				},
+			},
+			expectedError: `spec.volumes[0]: Invalid value: "secret, configMap": may not specify more than one volume source`,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(tt *testing.T) {
+			original := test.original.DeepCopy()
+
+			err := kubernetes.ApplyPodTemplateSpecOverrides(test.original, test.override)
+			require.Error(tt, err)
+			assert.Contains(tt, err.Error(), test.expectedError)
+			// The pod template is left untouched when the merge result is rejected.
+			assert.True(tt, equality.Semantic.DeepEqual(test.original, original))
 		})
 	}
 }

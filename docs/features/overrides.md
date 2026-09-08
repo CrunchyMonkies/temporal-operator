@@ -311,6 +311,56 @@ spec:
                     key: test
 ```
 
+The same override can be expressed as a strategic merge patch:
+
+```yaml
+apiVersion: temporal.io/v1beta1
+kind: TemporalCluster
+metadata:
+  name: prod
+spec:
+  # [...]
+  services:
+    frontend:
+      overrides:
+        deployment:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: service
+                    env:
+                      - name: TEST
+                        valueFrom:
+                          secretKeyRef:
+                            name: test-secret
+                            key: test
+```
+
+### Replacing a field of an existing env var or volume
+
+A strategic merge patch merges list elements sharing the same merge key (`name`, for
+`env`, `volumes` and `volumeMounts`) field by field. When the override targets an entry
+that already exists and replaces one member of a mutually exclusive group — `value` and
+`valueFrom` on an env var, or the source of a volume — the field being replaced has to
+be nulled explicitly, otherwise both end up set and the result is invalid:
+
+```yaml
+                    env:
+                      # "PROMETHEUS_ENDPOINT" already exists with a "value".
+                      - name: PROMETHEUS_ENDPOINT
+                        value: null
+                        valueFrom:
+                          secretKeyRef:
+                            name: test-secret
+                            key: endpoint
+```
+
+`$patch: replace` on the element works too. The operator validates the merge result and
+fails the reconcile with the offending field path when a merged env var carries both
+`value` and `valueFrom`, or a merged volume carries more than one source, instead of
+letting the API server reject the deployment later on.
+
 Read more in [Strategic Merge Patch](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-api-machinery/strategic-merge-patch.md#strategic-merge-patch).
 
 ## Override UI deployment
