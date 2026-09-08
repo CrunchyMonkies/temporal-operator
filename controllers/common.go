@@ -21,4 +21,10 @@ const (
 	deletionFinalizer = "deletion.finalizers.temporal.io"
 	clusterRefField   = "spec.clusterRef.name"
 	namespaceRefField = "spec.namespaceRef.name"
+
+	// forceDeleteAnnotation, set to "true", makes the deletion path drop the deletion finalizer
+	// without contacting the temporal server. Whatever the resource stands for on the server is
+	// left behind, so this is the last resort for a cluster the operator can no longer reach: it
+	// is opt-in per object, and nothing the controller decides on its own.
+	forceDeleteAnnotation = "temporal.io/force-delete"
 )

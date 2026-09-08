@@ -46,7 +46,11 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 )
 
-const doesNotExistName = "does-not-exist"
+const (
+	doesNotExistName = "does-not-exist"
+	// deletionFinalizer is the finalizer the operator uses to own a resource's deletion.
+	deletionFinalizer = "deletion.finalizers.temporal.io"
+)
 
 var defaultVersion = version.MustNewVersionFromString("1.31.1")
 

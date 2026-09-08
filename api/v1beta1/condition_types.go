@@ -22,6 +22,10 @@ const (
 	// SpecValidationFailedReason signals a reconciliation error the spec itself causes, which no
 	// retry can clear. The controller stops retrying and waits for the spec to change.
 	SpecValidationFailedReason string = "SpecValidationFailed"
+	// DeletionBlockedReason signals the temporal server refused a deletion for a reason no retry
+	// can clear. The controller stops retrying, leaving the resource terminating until either the
+	// server accepts the deletion or the user asks for the finalizer to be dropped without it.
+	DeletionBlockedReason string = "DeletionBlocked"
 	// ReconcileSuccessReason signals a successful reconciliation.
 	ReconcileSuccessReason string = "LastReconcileCycleSucceded"
 	// ServicesReadyReason signals all temporal services for the cluster are in ready state.
