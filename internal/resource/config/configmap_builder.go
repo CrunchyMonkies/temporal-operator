@@ -385,6 +385,16 @@ func (b *ConfigmapBuilder) Update(object client.Object) error {
 		}
 	}
 
+	// pprof is process-wide in temporal's config (global.pprof), and every service
+	// shares this generated config file, so enabling it turns the endpoint on in all
+	// temporal service pods. A zero port leaves it disabled server-side.
+	if b.instance.Spec.PProf.IsEnabled() {
+		temporalCfg.Global.PProf = temporalconfig.PProf{
+			Port: int(b.instance.Spec.PProf.GetPort()),
+			Host: b.instance.Spec.PProf.GetHost(),
+		}
+	}
+
 	if b.instance.MTLSWithCertManagerEnabled() {
 		temporalCfg.Global.TLS = temporalconfig.RootTLS{
 			RefreshInterval:  b.instance.Spec.MTLS.RefreshInterval.Duration,

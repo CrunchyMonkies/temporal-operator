@@ -345,6 +345,18 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 		}
 	}
 
+	// pprof is enabled cluster-wide (temporal's global.pprof config block is
+	// process-wide), so every service container gets the port when it's turned on.
+	// The port is only declared, not published through any Service: profiles are
+	// meant to be reached with `kubectl port-forward`.
+	if b.instance.Spec.PProf.IsEnabled() {
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			Name:          v1beta1.PProfPortName,
+			ContainerPort: b.instance.Spec.PProf.GetPort(),
+			Protocol:      corev1.ProtocolTCP,
+		})
+	}
+
 	if b.serviceName == string(primitives.FrontendService) && b.instance.Spec.Services.Frontend.HTTPPort != nil {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
 			Name:          "http",

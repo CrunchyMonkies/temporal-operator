@@ -3154,6 +3154,35 @@ spec:
                     - defaultStore
                     - visibilityStore
                   type: object
+                pprof:
+                  description: |-
+                    PProf allows configuration of the temporal server's pprof endpoint.
+                    Disabled by default.
+                  properties:
+                    enabled:
+                      default: false
+                      description: |-
+                        Enabled defines if the operator should enable the pprof endpoint on temporal services.
+                        It is disabled by default: pprof serves unauthenticated heap, goroutine and CPU
+                        profiles, so it should only be turned on while investigating an issue.
+                      type: boolean
+                    host:
+                      description: |-
+                        Host is the address the pprof HTTP server binds to.
+                        Defaults to "127.0.0.1", which keeps profiles reachable through
+                        `kubectl port-forward` without exposing them to the rest of the cluster network.
+                        Set it to "0.0.0.0" to make them reachable from other pods.
+                      type: string
+                    port:
+                      description: |-
+                        Port is the port the pprof HTTP server listens on in every temporal service pod.
+                        It must not collide with the services' rpc, membership, http or metrics ports.
+                        Defaults to 7936.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
+                  type: object
                 services:
                   description: Services allows customizations for each temporal services deployment.
                   properties:
