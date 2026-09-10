@@ -183,12 +183,25 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 			)
 		}
 
-		if cluster.Spec.Archival.Provider.Kind() == v1beta1.S3ArchivalProviderKind {
-			if cluster.Spec.Archival.Provider.S3.RoleName == nil && cluster.Spec.Archival.Provider.S3.Credentials == nil {
+		if cluster.Spec.Archival.Provider != nil && cluster.Spec.Archival.Provider.Kind() == v1beta1.S3ArchivalProviderKind {
+			s3 := cluster.Spec.Archival.Provider.S3
+			// How the temporal services get their AWS credentials has to be said exactly once:
+			// an explicit role to assume (IRSA), explicit credentials from a secret, or an opt-in
+			// to whatever the environment provides (EKS Pod Identity, an instance profile). The
+			// last one is only ever taken when asked for, never as a fallback.
+			switch {
+			case s3.UseDefaultCredentials && (s3.RoleName != nil || s3.Credentials != nil):
+				errs = append(errs,
+					field.Forbidden(
+						field.NewPath("spec", "archival", "provider", "s3", "useDefaultCredentials"),
+						"The default AWS credential chain can't be combined with an s3 role name or s3 credentials, please remove one of them (spec.archival.provider.s3.roleName or spec.archival.provider.s3.credentials)",
+					),
+				)
+			case !s3.UseDefaultCredentials && s3.RoleName == nil && s3.Credentials == nil:
 				errs = append(errs,
 					field.Forbidden(
 						field.NewPath("spec", "archival", "provider", "s3"),
-						"Please provide s3 role name if using EKS or s3 credentials for s3 provider (spec.archival.provider.s3.roleName or spec.archival.provider.s3.credentials)",
+						"Please provide s3 role name if using EKS IRSA, s3 credentials, or ask for the default AWS credential chain if using EKS Pod Identity for s3 provider (spec.archival.provider.s3.roleName, spec.archival.provider.s3.credentials or spec.archival.provider.s3.useDefaultCredentials)",
 					),
 				)
 			}
