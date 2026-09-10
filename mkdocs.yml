@@ -33,6 +33,7 @@ nav:
     - Monitoring:
       - Using prometheus-operator: features/monitoring/prometheus-operator.md
       - Using prometheus: features/monitoring/prometheus.md
+    - Job scheduling: features/job-scheduling.md
     - Overrides: features/overrides.md
   - Operations:
     - ArgoCD: operations/argocd.md
