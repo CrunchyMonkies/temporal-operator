@@ -823,6 +823,69 @@ func (m *MetricsSpec) IsEnabled() bool {
 	return m != nil && m.Enabled
 }
 
+const (
+	// DefaultPProfPort is the port the temporal server's pprof endpoint listens on
+	// when spec.pprof.port isn't set. It matches the port temporal's own
+	// development configurations use and doesn't collide with any of the operator's
+	// default rpc (72xx), membership (69xx), http (7243) or metrics (9090) ports.
+	DefaultPProfPort int32 = 7936
+	// DefaultPProfHost is the address the temporal server's pprof endpoint binds to
+	// when spec.pprof.host isn't set. Binding on loopback keeps profiles reachable
+	// through `kubectl port-forward` without publishing them on the pod network.
+	DefaultPProfHost = "127.0.0.1"
+	// PProfPortName is the name given to the pprof container port.
+	PProfPortName = "pprof"
+)
+
+// PProfSpec determines parameters for configuring the temporal server's pprof endpoint.
+//
+// Temporal exposes pprof through its process-wide `global.pprof` config block, and the
+// operator renders a single server config shared by every temporal service. The setting
+// is therefore cluster-wide rather than per-service: enabling it starts the pprof HTTP
+// server in the frontend, internal-frontend, history, matching and worker pods alike.
+type PProfSpec struct {
+	// Enabled defines if the operator should enable the pprof endpoint on temporal services.
+	// It is disabled by default: pprof serves unauthenticated heap, goroutine and CPU
+	// profiles, so it should only be turned on while investigating an issue.
+	// +optional
+	// +kubebuilder:default:=false
+	Enabled bool `json:"enabled"`
+	// Port is the port the pprof HTTP server listens on in every temporal service pod.
+	// It must not collide with the services' rpc, membership, http or metrics ports.
+	// Defaults to 7936.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port *int32 `json:"port,omitempty"`
+	// Host is the address the pprof HTTP server binds to.
+	// Defaults to "127.0.0.1", which keeps profiles reachable through
+	// `kubectl port-forward` without exposing them to the rest of the cluster network.
+	// Set it to "0.0.0.0" to make them reachable from other pods.
+	// +optional
+	Host string `json:"host,omitempty"`
+}
+
+// IsEnabled returns true if pprof is enabled for the cluster.
+func (p *PProfSpec) IsEnabled() bool {
+	return p != nil && p.Enabled
+}
+
+// GetPort returns the port the pprof HTTP server listens on.
+func (p *PProfSpec) GetPort() int32 {
+	if p == nil || p.Port == nil {
+		return DefaultPProfPort
+	}
+	return *p.Port
+}
+
+// GetHost returns the address the pprof HTTP server binds to.
+func (p *PProfSpec) GetHost() string {
+	if p == nil || p.Host == "" {
+		return DefaultPProfHost
+	}
+	return p.Host
+}
+
 // Constraints is an alias for temporal's dynamicconfig.Constraints.
 // It describes under what conditions a ConstrainedValue should be used.
 type Constraints struct {
@@ -1077,6 +1140,10 @@ type TemporalClusterSpec struct {
 	// Metrics allows configuration of scraping endpoints for stats. prometheus or m3.
 	// +optional
 	Metrics *MetricsSpec `json:"metrics,omitempty"`
+	// PProf allows configuration of the temporal server's pprof endpoint.
+	// Disabled by default.
+	// +optional
+	PProf *PProfSpec `json:"pprof,omitempty"`
 	// DynamicConfig allows advanced configuration for the temporal cluster.
 	// +optional
 	DynamicConfig *DynamicConfigSpec `json:"dynamicConfig,omitempty"`

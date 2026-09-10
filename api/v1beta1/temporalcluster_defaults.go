@@ -252,6 +252,15 @@ func (c *TemporalCluster) Default() {
 		}
 	}
 
+	if c.Spec.PProf.IsEnabled() {
+		if c.Spec.PProf.Port == nil {
+			c.Spec.PProf.Port = ptr.To(DefaultPProfPort)
+		}
+		if c.Spec.PProf.Host == "" {
+			c.Spec.PProf.Host = DefaultPProfHost
+		}
+	}
+
 	if c.Spec.DynamicConfig != nil {
 		if c.Spec.DynamicConfig.PollInterval == nil {
 			c.Spec.DynamicConfig.PollInterval = &metav1.Duration{Duration: time.Minute * 10}

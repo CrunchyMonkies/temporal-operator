@@ -254,6 +254,21 @@ MetricsSpec
 </tr>
 <tr>
 <td>
+<code>pprof</code><br>
+<em>
+<a href="#temporal.io/v1beta1.PProfSpec">
+PProfSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>PProf allows configuration of the temporal server&rsquo;s pprof endpoint.
+Disabled by default.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>dynamicConfig</code><br>
 <em>
 <a href="#temporal.io/v1beta1.DynamicConfigSpec">
@@ -2299,6 +2314,74 @@ string
 <td>
 <p>The namespace of the temporal object to reference.
 Defaults to the namespace of the requested resource if omitted.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.PProfSpec">PProfSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalClusterSpec">TemporalClusterSpec</a>)
+</p>
+<p>PProfSpec determines parameters for configuring the temporal server&rsquo;s pprof endpoint.</p>
+<p>Temporal exposes pprof through its process-wide <code>global.pprof</code> config block, and the
+operator renders a single server config shared by every temporal service. The setting
+is therefore cluster-wide rather than per-service: enabling it starts the pprof HTTP
+server in the frontend, internal-frontend, history, matching and worker pods alike.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>enabled</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Enabled defines if the operator should enable the pprof endpoint on temporal services.
+It is disabled by default: pprof serves unauthenticated heap, goroutine and CPU
+profiles, so it should only be turned on while investigating an issue.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>port</code><br>
+<em>
+int32
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Port is the port the pprof HTTP server listens on in every temporal service pod.
+It must not collide with the services&rsquo; rpc, membership, http or metrics ports.
+Defaults to 7936.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>host</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Host is the address the pprof HTTP server binds to.
+Defaults to &ldquo;127.0.0.1&rdquo;, which keeps profiles reachable through
+<code>kubectl port-forward</code> without exposing them to the rest of the cluster network.
+Set it to &ldquo;0.0.0.0&rdquo; to make them reachable from other pods.</p>
 </td>
 </tr>
 </tbody>
@@ -5172,6 +5255,21 @@ MetricsSpec
 <td>
 <em>(Optional)</em>
 <p>Metrics allows configuration of scraping endpoints for stats. prometheus or m3.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>pprof</code><br>
+<em>
+<a href="#temporal.io/v1beta1.PProfSpec">
+PProfSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>PProf allows configuration of the temporal server&rsquo;s pprof endpoint.
+Disabled by default.</p>
 </td>
 </tr>
 <tr>
