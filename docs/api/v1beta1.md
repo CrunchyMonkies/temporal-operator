@@ -4304,7 +4304,8 @@ Defaults to 1.</p>
 <p>
 (<em>Appears on:</em>
 <a href="#temporal.io/v1beta1.DatastoreSpec">DatastoreSpec</a>, 
-<a href="#temporal.io/v1beta1.DatastoreTLSSpec">DatastoreTLSSpec</a>)
+<a href="#temporal.io/v1beta1.DatastoreTLSSpec">DatastoreTLSSpec</a>, 
+<a href="#temporal.io/v1beta1.TemporalUIOIDCAuthSpec">TemporalUIOIDCAuthSpec</a>)
 </p>
 <p>SecretKeyReference contains enough information to locate the referenced Kubernetes Secret object in the same
 namespace.</p>
@@ -6495,6 +6496,61 @@ TemporalCluster relying on one that isn&rsquo;t present there can&rsquo;t be rec
 </table>
 </div>
 </div>
+<h3 id="temporal.io/v1beta1.TemporalUIAuthSpec">TemporalUIAuthSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalUISpec">TemporalUISpec</a>)
+</p>
+<p>TemporalUIAuthSpec defines the authentication configuration of the temporal web ui.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>oidc</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TemporalUIOIDCAuthSpec">
+TemporalUIOIDCAuthSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>OIDC holds the OpenID Connect provider configuration used by the web ui to
+authenticate users. It is mapped to the ui&rsquo;s TEMPORAL<em>AUTH</em>* environment variables.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>extraEnv</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#envvar-v1-core">
+[]Kubernetes core/v1.EnvVar
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ExtraEnv is an escape hatch for authentication settings which are not covered by
+the typed configuration above, such as provider-specific options.
+Those variables are set on the ui container and take precedence over the variables
+computed by the operator, which makes them usable to tweak any generated value.
+See <a href="https://docs.temporal.io/references/web-ui-environment-variables">https://docs.temporal.io/references/web-ui-environment-variables</a> for the
+available variables.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 <h3 id="temporal.io/v1beta1.TemporalUIIngressSpec">TemporalUIIngressSpec
 </h3>
 <p>
@@ -6556,6 +6612,93 @@ string
 </td>
 <td>
 <p>TLS configuration.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.TemporalUIOIDCAuthSpec">TemporalUIOIDCAuthSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalUIAuthSpec">TemporalUIAuthSpec</a>)
+</p>
+<p>TemporalUIOIDCAuthSpec defines the OIDC configuration of the temporal web ui.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>providerUrl</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>ProviderURL is the OIDC provider&rsquo;s base URL. The ui discovers the provider&rsquo;s
+endpoints using ${providerUrl}/.well-known/openid-configuration.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>clientId</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>ClientID is the OIDC client identifier the ui authenticates with.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>clientSecretRef</code><br>
+<em>
+<a href="#temporal.io/v1beta1.SecretKeyReference">
+SecretKeyReference
+</a>
+</em>
+</td>
+<td>
+<p>ClientSecretRef is a reference to the secret holding the OIDC client secret.
+The secret must live in the same namespace as the temporal cluster.
+The client secret can only be provided using a secret reference, it can&rsquo;t be inlined
+in the cluster&rsquo;s spec.
+If the key is not set, it defaults to &ldquo;clientSecret&rdquo;.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>scopes</code><br>
+<em>
+[]string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Scopes is the list of OIDC scopes requested by the ui.
+When left empty the ui uses its own default scopes.
+Requires temporal ui &gt;= 2.9.0, older ui versions ignore this setting.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>redirectUrl</code><br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>RedirectURL is the URL the OIDC provider redirects to once the user is authenticated.
+It&rsquo;s the ui&rsquo;s callback URL, which is the ui&rsquo;s external URL suffixed by /auth/sso/callback.</p>
 </td>
 </tr>
 </tbody>
@@ -6683,6 +6826,21 @@ ObjectMetaOverride
 <td>
 <em>(Optional)</em>
 <p>Service is an optional service resource configuration for the UI.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>auth</code><br>
+<em>
+<a href="#temporal.io/v1beta1.TemporalUIAuthSpec">
+TemporalUIAuthSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Auth allows configuring authentication on the web ui.
+It requires the ui to be enabled.</p>
 </td>
 </tr>
 </tbody>

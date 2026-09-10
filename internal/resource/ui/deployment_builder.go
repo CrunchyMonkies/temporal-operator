@@ -115,6 +115,10 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 		env = append(env, certmanager.GetTLSEnvironmentVariables(b.instance, "TEMPORAL", uiCertsMountPath)...)
 	}
 
+	// Authentication variables are merged, not appended: the auth spec's extraEnv
+	// escape hatch is allowed to override any variable computed above.
+	env = mergeEnv(env, GetAuthEnvironmentVariables(b.instance))
+
 	deployment.Spec.Replicas = b.instance.Spec.UI.Replicas
 
 	deployment.Spec.Selector = &metav1.LabelSelector{
