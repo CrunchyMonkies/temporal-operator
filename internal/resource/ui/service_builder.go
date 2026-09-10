@@ -31,7 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const UIServicePort = 8080
+const (
+	UIServicePort = 8080
+
+	// uiServiceHTTPPortName is the name of the UI service's http port.
+	// It's also the port the user-provided node port is set on.
+	uiServiceHTTPPortName = "http"
+)
 
 type ServiceBuilder struct {
 	instance *v1beta1.TemporalCluster
@@ -62,26 +68,21 @@ func (b *ServiceBuilder) Update(object client.Object) error {
 	service := object.(*corev1.Service)
 	service.Labels = object.GetLabels()
 	service.Annotations = object.GetAnnotations()
-	service.Spec.Type = corev1.ServiceTypeClusterIP
 	service.Spec.Selector = metadata.LabelsSelector(b.instance, "ui")
-	service.Spec.Ports = []corev1.ServicePort{
+
+	kubernetes.SetServicePorts(service, []corev1.ServicePort{
 		{
-			Name:       "http",
+			Name:       uiServiceHTTPPortName,
 			TargetPort: intstr.FromString("http"),
 			Protocol:   corev1.ProtocolTCP,
 			Port:       int32(UIServicePort),
 		},
-	}
+	})
+	kubernetes.ApplyServiceResourceSpec(service, b.instance.Spec.UI.Service, uiServiceHTTPPortName)
 
 	if err := controllerutil.SetControllerReference(b.instance, service, b.scheme); err != nil {
 		return fmt.Errorf("failed setting controller reference: %w", err)
 	}
 
-	if b.instance.Spec.UI.Service != nil {
-		err := kubernetes.ApplyServiceOverrides(service, b.instance.Spec.UI.Service)
-		if err != nil {
-			return fmt.Errorf("failed applying service overrides: %w", err)
-		}
-	}
 	return nil
 }

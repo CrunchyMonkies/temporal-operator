@@ -24,6 +24,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
 	"github.com/alexandrevilain/temporal-operator/internal/metadata"
 	"github.com/alexandrevilain/temporal-operator/internal/resource/meta"
+	"github.com/alexandrevilain/temporal-operator/pkg/kubernetes"
 	"go.temporal.io/server/common/primitives"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+// frontendServiceGRPCPortName is the name of the frontend service's gRPC port.
+// It's also the port the user-provided node port is set on.
+const frontendServiceGRPCPortName = "grpc-rpc"
 
 var _ resource.Builder = (*FrontendServiceBuilder)(nil)
 
@@ -72,11 +77,11 @@ func (b *FrontendServiceBuilder) Update(object client.Object) error {
 		object.GetAnnotations(),
 		metadata.GetAnnotations(b.instance.Name, b.instance.Annotations),
 	)
-	service.Spec.Type = corev1.ServiceTypeClusterIP
 	service.Spec.Selector = metadata.LabelsSelector(b.instance, string(primitives.FrontendService))
-	service.Spec.Ports = []corev1.ServicePort{
+
+	ports := []corev1.ServicePort{
 		{
-			Name:       "grpc-rpc",
+			Name:       frontendServiceGRPCPortName,
 			Protocol:   corev1.ProtocolTCP,
 			Port:       *b.instance.Spec.Services.Frontend.Port,
 			TargetPort: intstr.FromString("rpc"),
@@ -84,13 +89,16 @@ func (b *FrontendServiceBuilder) Update(object client.Object) error {
 	}
 
 	if b.instance.Spec.Services.Frontend.HTTPPort != nil {
-		service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{
+		ports = append(ports, corev1.ServicePort{
 			Name:       "http",
 			Protocol:   corev1.ProtocolTCP,
 			Port:       *b.instance.Spec.Services.Frontend.HTTPPort,
 			TargetPort: intstr.FromString("http"),
 		})
 	}
+
+	kubernetes.SetServicePorts(service, ports)
+	kubernetes.ApplyServiceResourceSpec(service, b.instance.Spec.Services.Frontend.Service, frontendServiceGRPCPortName)
 
 	if err := controllerutil.SetControllerReference(b.instance, service, b.scheme); err != nil {
 		return fmt.Errorf("failed setting controller reference: %w", err)

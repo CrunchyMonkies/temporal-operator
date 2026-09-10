@@ -2214,7 +2214,7 @@ PrometheusSpec
 (<em>Appears on:</em>
 <a href="#temporal.io/v1beta1.DeploymentOverride">DeploymentOverride</a>, 
 <a href="#temporal.io/v1beta1.PodTemplateSpecOverride">PodTemplateSpecOverride</a>, 
-<a href="#temporal.io/v1beta1.TemporalUISpec">TemporalUISpec</a>)
+<a href="#temporal.io/v1beta1.ServiceResourceSpec">ServiceResourceSpec</a>)
 </p>
 <p>ObjectMetaOverride provides the ability to override an object metadata.
 It&rsquo;s a subset of the fields included in k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta.</p>
@@ -4345,6 +4345,84 @@ string
 </table>
 </div>
 </div>
+<h3 id="temporal.io/v1beta1.ServiceResourceSpec">ServiceResourceSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.ServiceSpec">ServiceSpec</a>, 
+<a href="#temporal.io/v1beta1.TemporalUISpec">TemporalUISpec</a>)
+</p>
+<p>ServiceResourceSpec contains the customizations applied to the kubernetes Service
+created for a temporal service.
+Only fields set here are applied by the operator: fields left unset keep the value they
+have on the live Service. This allows setting fields the operator doesn&rsquo;t expose
+(such as spec.loadBalancerSourceRanges) without the reconciliation loop reverting them.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>ObjectMetaOverride</code><br>
+<em>
+<a href="#temporal.io/v1beta1.ObjectMetaOverride">
+ObjectMetaOverride
+</a>
+</em>
+</td>
+<td>
+<p>
+(Members of <code>ObjectMetaOverride</code> are embedded into this type.)
+</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>type</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#servicetype-v1-core">
+Kubernetes core/v1.ServiceType
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Type determines how the Service is exposed.
+Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+cluster only.
+Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+the cluster&rsquo;s gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+any mTLS-terminating ingress deployed in front of it. Make sure to enable
+spec.mTLS.frontend (or to restrict the access at the network level) before doing so.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>nodePort</code><br>
+<em>
+int32
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>NodePort is the port on each cluster node on which the service is exposed.
+It requires the service type to be NodePort or LoadBalancer and the port to be in the
+range configured on the cluster&rsquo;s api server (30000-32767 by default).
+When left empty, the node port is allocated by the api server.
+For the frontend service the node port is set on the gRPC port, for the UI service on
+the http port.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 <h3 id="temporal.io/v1beta1.ServiceSpec">ServiceSpec
 </h3>
 <p>
@@ -4465,6 +4543,22 @@ Those overrides takes precedence over spec.services.overrides.</p>
 <td>
 <em>(Optional)</em>
 <p>InitContainers adds a list of init containers to the service&rsquo;s deployment.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>service</code><br>
+<em>
+<a href="#temporal.io/v1beta1.ServiceResourceSpec">
+ServiceResourceSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Service allows to customize the kubernetes Service created for the temporal service.
+It only has an effect for the frontend service (spec.services.frontend): all other
+temporal services are only reachable using their headless service.</p>
 </td>
 </tr>
 </tbody>
@@ -6675,8 +6769,8 @@ If lived empty, no ingress configuration will be created and the UI will only by
 <td>
 <code>service</code><br>
 <em>
-<a href="#temporal.io/v1beta1.ObjectMetaOverride">
-ObjectMetaOverride
+<a href="#temporal.io/v1beta1.ServiceResourceSpec">
+ServiceResourceSpec
 </a>
 </em>
 </td>

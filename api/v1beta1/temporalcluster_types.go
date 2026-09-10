@@ -100,7 +100,41 @@ type ServiceSpec struct {
 	// InitContainers adds a list of init containers to the service's deployment.
 	// +optional
 	InitContainers []corev1.Container `json:"initContainers,omitempty"`
+	// Service allows to customize the kubernetes Service created for the temporal service.
+	// It only has an effect for the frontend service (spec.services.frontend): all other
+	// temporal services are only reachable using their headless service.
+	// +optional
+	Service *ServiceResourceSpec `json:"service,omitempty"`
 	// ServiceAccountOverride
+}
+
+// ServiceResourceSpec contains the customizations applied to the kubernetes Service
+// created for a temporal service.
+// Only fields set here are applied by the operator: fields left unset keep the value they
+// have on the live Service. This allows setting fields the operator doesn't expose
+// (such as spec.loadBalancerSourceRanges) without the reconciliation loop reverting them.
+type ServiceResourceSpec struct {
+	ObjectMetaOverride `json:",inline"`
+	// Type determines how the Service is exposed.
+	// Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+	// cluster only.
+	// Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+	// the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+	// any mTLS-terminating ingress deployed in front of it. Make sure to enable
+	// spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	// +optional
+	Type *corev1.ServiceType `json:"type,omitempty"`
+	// NodePort is the port on each cluster node on which the service is exposed.
+	// It requires the service type to be NodePort or LoadBalancer and the port to be in the
+	// range configured on the cluster's api server (30000-32767 by default).
+	// When left empty, the node port is allocated by the api server.
+	// For the frontend service the node port is set on the gRPC port, for the UI service on
+	// the http port.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	NodePort *int32 `json:"nodePort,omitempty"`
 }
 
 // InternalFrontendServiceSpec contains temporal internal frontend service specifications.
@@ -596,7 +630,7 @@ type TemporalUISpec struct {
 	Ingress *TemporalUIIngressSpec `json:"ingress,omitempty"`
 	// Service is an optional service resource configuration for the UI.
 	// +optional
-	Service *ObjectMetaOverride `json:"service,omitempty"`
+	Service *ServiceResourceSpec `json:"service,omitempty"`
 }
 
 // TemporalAdminToolsSpec defines parameters for the temporal admin tools within a Temporal cluster deployment.

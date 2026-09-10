@@ -3238,6 +3238,53 @@ spec:
                                 More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                               type: object
                           type: object
+                        service:
+                          description: |-
+                            Service allows to customize the kubernetes Service created for the temporal service.
+                            It only has an effect for the frontend service (spec.services.frontend): all other
+                            temporal services are only reachable using their headless service.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is an unstructured key value map stored with a resource that may be
+                                set by external tools to store and retrieve arbitrary metadata.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Map of string keys and values that can be used to organize and categorize
+                                (scope and select) objects.
+                              type: object
+                            nodePort:
+                              description: |-
+                                NodePort is the port on each cluster node on which the service is exposed.
+                                It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                                range configured on the cluster's api server (30000-32767 by default).
+                                When left empty, the node port is allocated by the api server.
+                                For the frontend service the node port is set on the gRPC port, for the UI service on
+                                the http port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            type:
+                              description: |-
+                                Type determines how the Service is exposed.
+                                Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                                cluster only.
+                                Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                                the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                                any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                                spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                              enum:
+                                - ClusterIP
+                                - NodePort
+                                - LoadBalancer
+                              type: string
+                          type: object
                       type: object
                     history:
                       description: History service custom specifications.
@@ -3404,6 +3451,53 @@ spec:
                                 otherwise to an implementation-defined value. Requests cannot exceed Limits.
                                 More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                               type: object
+                          type: object
+                        service:
+                          description: |-
+                            Service allows to customize the kubernetes Service created for the temporal service.
+                            It only has an effect for the frontend service (spec.services.frontend): all other
+                            temporal services are only reachable using their headless service.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is an unstructured key value map stored with a resource that may be
+                                set by external tools to store and retrieve arbitrary metadata.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Map of string keys and values that can be used to organize and categorize
+                                (scope and select) objects.
+                              type: object
+                            nodePort:
+                              description: |-
+                                NodePort is the port on each cluster node on which the service is exposed.
+                                It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                                range configured on the cluster's api server (30000-32767 by default).
+                                When left empty, the node port is allocated by the api server.
+                                For the frontend service the node port is set on the gRPC port, for the UI service on
+                                the http port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            type:
+                              description: |-
+                                Type determines how the Service is exposed.
+                                Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                                cluster only.
+                                Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                                the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                                any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                                spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                              enum:
+                                - ClusterIP
+                                - NodePort
+                                - LoadBalancer
+                              type: string
                           type: object
                       type: object
                     internalFrontend:
@@ -3578,6 +3672,53 @@ spec:
                                 More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                               type: object
                           type: object
+                        service:
+                          description: |-
+                            Service allows to customize the kubernetes Service created for the temporal service.
+                            It only has an effect for the frontend service (spec.services.frontend): all other
+                            temporal services are only reachable using their headless service.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is an unstructured key value map stored with a resource that may be
+                                set by external tools to store and retrieve arbitrary metadata.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Map of string keys and values that can be used to organize and categorize
+                                (scope and select) objects.
+                              type: object
+                            nodePort:
+                              description: |-
+                                NodePort is the port on each cluster node on which the service is exposed.
+                                It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                                range configured on the cluster's api server (30000-32767 by default).
+                                When left empty, the node port is allocated by the api server.
+                                For the frontend service the node port is set on the gRPC port, for the UI service on
+                                the http port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            type:
+                              description: |-
+                                Type determines how the Service is exposed.
+                                Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                                cluster only.
+                                Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                                the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                                any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                                spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                              enum:
+                                - ClusterIP
+                                - NodePort
+                                - LoadBalancer
+                              type: string
+                          type: object
                       type: object
                     matching:
                       description: Matching service custom specifications.
@@ -3744,6 +3885,53 @@ spec:
                                 otherwise to an implementation-defined value. Requests cannot exceed Limits.
                                 More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                               type: object
+                          type: object
+                        service:
+                          description: |-
+                            Service allows to customize the kubernetes Service created for the temporal service.
+                            It only has an effect for the frontend service (spec.services.frontend): all other
+                            temporal services are only reachable using their headless service.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is an unstructured key value map stored with a resource that may be
+                                set by external tools to store and retrieve arbitrary metadata.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Map of string keys and values that can be used to organize and categorize
+                                (scope and select) objects.
+                              type: object
+                            nodePort:
+                              description: |-
+                                NodePort is the port on each cluster node on which the service is exposed.
+                                It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                                range configured on the cluster's api server (30000-32767 by default).
+                                When left empty, the node port is allocated by the api server.
+                                For the frontend service the node port is set on the gRPC port, for the UI service on
+                                the http port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            type:
+                              description: |-
+                                Type determines how the Service is exposed.
+                                Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                                cluster only.
+                                Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                                the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                                any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                                spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                              enum:
+                                - ClusterIP
+                                - NodePort
+                                - LoadBalancer
+                              type: string
                           type: object
                       type: object
                     overrides:
@@ -3975,6 +4163,53 @@ spec:
                                 More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                               type: object
                           type: object
+                        service:
+                          description: |-
+                            Service allows to customize the kubernetes Service created for the temporal service.
+                            It only has an effect for the frontend service (spec.services.frontend): all other
+                            temporal services are only reachable using their headless service.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is an unstructured key value map stored with a resource that may be
+                                set by external tools to store and retrieve arbitrary metadata.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Map of string keys and values that can be used to organize and categorize
+                                (scope and select) objects.
+                              type: object
+                            nodePort:
+                              description: |-
+                                NodePort is the port on each cluster node on which the service is exposed.
+                                It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                                range configured on the cluster's api server (30000-32767 by default).
+                                When left empty, the node port is allocated by the api server.
+                                For the frontend service the node port is set on the gRPC port, for the UI service on
+                                the http port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            type:
+                              description: |-
+                                Type determines how the Service is exposed.
+                                Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                                cluster only.
+                                Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                                the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                                any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                                spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                              enum:
+                                - ClusterIP
+                                - NodePort
+                                - LoadBalancer
+                              type: string
+                          type: object
                       type: object
                   type: object
                 targetClusterRef:
@@ -4191,6 +4426,32 @@ spec:
                             Map of string keys and values that can be used to organize and categorize
                             (scope and select) objects.
                           type: object
+                        nodePort:
+                          description: |-
+                            NodePort is the port on each cluster node on which the service is exposed.
+                            It requires the service type to be NodePort or LoadBalancer and the port to be in the
+                            range configured on the cluster's api server (30000-32767 by default).
+                            When left empty, the node port is allocated by the api server.
+                            For the frontend service the node port is set on the gRPC port, for the UI service on
+                            the http port.
+                          format: int32
+                          maximum: 65535
+                          minimum: 1
+                          type: integer
+                        type:
+                          description: |-
+                            Type determines how the Service is exposed.
+                            Defaults to ClusterIP, which keeps the service reachable from within the kubernetes
+                            cluster only.
+                            Security note: exposing the frontend service using NodePort or LoadBalancer publishes
+                            the cluster's gRPC endpoint outside of the kubernetes cluster and therefore bypasses
+                            any mTLS-terminating ingress deployed in front of it. Make sure to enable
+                            spec.mTLS.frontend (or to restrict the access at the network level) before doing so.
+                          enum:
+                            - ClusterIP
+                            - NodePort
+                            - LoadBalancer
+                          type: string
                       type: object
                     version:
                       description: Version defines the temporal ui version the instance should run.

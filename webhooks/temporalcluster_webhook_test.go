@@ -28,6 +28,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -339,6 +340,72 @@ func TestValidateCreate(t *testing.T) {
 			},
 			expectedErr: "Forbidden: Can't set JSONPatch when Spec is set on Deployment override",
 		},
+		"error when the frontend service node port is set on a ClusterIP service": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.31.1"),
+					Services: &v1beta1.ServicesSpec{
+						Frontend: &v1beta1.ServiceSpec{
+							Service: &v1beta1.ServiceResourceSpec{
+								NodePort: ptr.To(int32(32233)),
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.services.frontend.service.nodePort: Invalid value: 32233: nodePort can only be set if the service type is NodePort or LoadBalancer",
+		},
+		"error when the UI service node port is set on a ClusterIP service": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.31.1"),
+					UI: &v1beta1.TemporalUISpec{
+						Enabled: true,
+						Service: &v1beta1.ServiceResourceSpec{
+							Type:     ptr.To(corev1.ServiceTypeClusterIP),
+							NodePort: ptr.To(int32(32080)),
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+			expectedErr: "spec.ui.service.nodePort: Invalid value: 32080: nodePort can only be set if the service type is NodePort or LoadBalancer",
+		},
+		"works when the frontend service is exposed using a load balancer": {
+			object: &v1beta1.TemporalCluster{
+				TypeMeta: v1beta1.TemporalClusterTypeMeta,
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: v1beta1.TemporalClusterSpec{
+					Version: version.MustNewVersionFromString("1.31.1"),
+					Services: &v1beta1.ServicesSpec{
+						Frontend: &v1beta1.ServiceSpec{
+							Service: &v1beta1.ServiceResourceSpec{
+								Type:     ptr.To(corev1.ServiceTypeLoadBalancer),
+								NodePort: ptr.To(int32(32233)),
+							},
+						},
+					},
+				},
+			},
+			wh: &webhooks.TemporalClusterWebhook{
+				AvailableAPIs: &discovery.AvailableAPIs{},
+			},
+		},
 	}
 
 	for name, test := range tests {
@@ -518,4 +585,46 @@ func TestValidateCreate_PasswordCommandWarning(t *testing.T) {
 	require.NotEmpty(t, warns, "passwordCommand must warn about the admin-tools image")
 	assert.Contains(t, strings.Join(warns, "\n"), "admin-tools image")
 	assert.Contains(t, strings.Join(warns, "\n"), "spec.persistence.defaultStore.sql.passwordCommand")
+}
+
+func TestValidateCreate_ExposedFrontendWarning(t *testing.T) {
+	wh := &webhooks.TemporalClusterWebhook{
+		AvailableAPIs: &discovery.AvailableAPIs{},
+	}
+
+	newCluster := func() *v1beta1.TemporalCluster {
+		return &v1beta1.TemporalCluster{
+			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+			ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+			Spec: v1beta1.TemporalClusterSpec{
+				Version: version.MustNewVersionFromString("1.31.1"),
+				Services: &v1beta1.ServicesSpec{
+					Frontend: &v1beta1.ServiceSpec{
+						Service: &v1beta1.ServiceResourceSpec{
+							Type: ptr.To(corev1.ServiceTypeLoadBalancer),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("warns when mTLS is disabled for the frontend", func(tt *testing.T) {
+		warns, err := wh.ValidateCreate(context.Background(), newCluster())
+		require.NoError(tt, err)
+		assert.Contains(tt, strings.Join(warns, "\n"), "spec.services.frontend.service.type")
+		assert.Contains(tt, strings.Join(warns, "\n"), "mTLS is disabled for the frontend")
+	})
+
+	t.Run("doesn't warn when mTLS is enabled for the frontend", func(tt *testing.T) {
+		cluster := newCluster()
+		cluster.Spec.MTLS = &v1beta1.MTLSSpec{
+			Provider: v1beta1.LinkerdMTLSProvider,
+			Frontend: &v1beta1.FrontendMTLSSpec{Enabled: true},
+		}
+
+		warns, err := wh.ValidateCreate(context.Background(), cluster)
+		require.NoError(tt, err)
+		assert.NotContains(tt, strings.Join(warns, "\n"), "spec.services.frontend.service.type")
+	})
 }
