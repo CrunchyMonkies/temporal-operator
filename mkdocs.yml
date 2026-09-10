@@ -25,6 +25,7 @@ nav:
     - Dynamic config: features/dynamic-config.md
     - Archival: features/archival.md
     - Temporal UI: features/temporal-ui.md
+    - Liveness probes: features/liveness-probes.md
     - Admin Tools: features/admin-tools.md
     - mTLS:
       - Using Cert-Manager: features/mtls/cert-manager.md

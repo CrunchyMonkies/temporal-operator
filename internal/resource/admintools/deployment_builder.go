@@ -121,6 +121,19 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 		env = append(env, certmanager.GetTLSEnvironmentVariables(b.instance, "TEMPORAL", admintoolsCertsMountPath)...)
 	}
 
+	livenessProbe := b.instance.Spec.AdminTools.LivenessProbe.Resolve(&corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"ls", "/"},
+			},
+		},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      1,
+		PeriodSeconds:       5,
+		SuccessThreshold:    1,
+		FailureThreshold:    3,
+	})
+
 	deployment.Spec.Replicas = ptr.To[int32](1)
 
 	deployment.Spec.Selector = &metav1.LabelSelector{
@@ -140,18 +153,7 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 					Env:                      env,
 					Resources:                b.instance.Spec.AdminTools.Resources,
-					LivenessProbe: &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							Exec: &corev1.ExecAction{
-								Command: []string{"ls", "/"},
-							},
-						},
-						InitialDelaySeconds: 5,
-						TimeoutSeconds:      1,
-						PeriodSeconds:       5,
-						SuccessThreshold:    1,
-						FailureThreshold:    3,
-					},
+					LivenessProbe:            livenessProbe,
 					SecurityContext: &corev1.SecurityContext{
 						AllowPrivilegeEscalation: ptr.To(false),
 					},
