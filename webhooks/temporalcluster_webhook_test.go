@@ -28,6 +28,7 @@ import (
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -518,4 +519,220 @@ func TestValidateCreate_PasswordCommandWarning(t *testing.T) {
 	require.NotEmpty(t, warns, "passwordCommand must warn about the admin-tools image")
 	assert.Contains(t, strings.Join(warns, "\n"), "admin-tools image")
 	assert.Contains(t, strings.Join(warns, "\n"), "spec.persistence.defaultStore.sql.passwordCommand")
+}
+
+// newUIAuthCluster returns a defaulted cluster running the provided ui configuration.
+func newUIAuthCluster(uiSpec *v1beta1.TemporalUISpec) *v1beta1.TemporalCluster {
+	cluster := &v1beta1.TemporalCluster{
+		TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+		ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+		Spec: v1beta1.TemporalClusterSpec{
+			Version: version.MustNewVersionFromString("1.31.1"),
+			UI:      uiSpec,
+		},
+	}
+	cluster.Default()
+	return cluster
+}
+
+func validUIOIDCSpec() *v1beta1.TemporalUIOIDCAuthSpec {
+	return &v1beta1.TemporalUIOIDCAuthSpec{
+		ProviderURL:     "https://keycloak.example.com/realms/temporal",
+		ClientID:        "temporal-ui",
+		ClientSecretRef: &v1beta1.SecretKeyReference{Name: "ui-oidc", Key: "secret"},
+		RedirectURL:     "https://temporal.example.com/auth/sso/callback",
+	}
+}
+
+func TestValidateCreate_UIAuth(t *testing.T) {
+	tests := map[string]struct {
+		ui          *v1beta1.TemporalUISpec
+		expectedErr string
+	}{
+		"valid oidc configuration": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth:    &v1beta1.TemporalUIAuthSpec{OIDC: validUIOIDCSpec()},
+			},
+		},
+		"valid extra env only configuration": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					ExtraEnv: []corev1.EnvVar{{Name: "TEMPORAL_AUTH_ENABLED", Value: "true"}},
+				},
+			},
+		},
+		"auth requires the ui to be enabled": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: false,
+				Auth:    &v1beta1.TemporalUIAuthSpec{OIDC: validUIOIDCSpec()},
+			},
+			expectedErr: "spec.ui.auth: Forbidden: spec.ui.auth requires the ui to be enabled (spec.ui.enabled)",
+		},
+		"empty auth configuration": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth:    &v1beta1.TemporalUIAuthSpec{},
+			},
+			expectedErr: "spec.ui.auth: Required value: please provide an oidc configuration or extra environment variables",
+		},
+		"oidc without client secret reference": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.ClientSecretRef = nil
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.clientSecretRef: Required value",
+		},
+		"oidc with an unnamed client secret reference": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.ClientSecretRef = &v1beta1.SecretKeyReference{Key: "secret"}
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.clientSecretRef.name: Required value",
+		},
+		"oidc with a relative provider url": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.ProviderURL = "keycloak.example.com"
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.providerUrl: Invalid value: \"keycloak.example.com\": please provide an absolute http(s) URL",
+		},
+		"oidc without redirect url": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.RedirectURL = ""
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.redirectUrl: Required value",
+		},
+		"oidc without client id": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.ClientID = ""
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.clientId: Required value",
+		},
+		"auth on a ui version not reading its auth configuration from the environment": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Version: "1.17.0",
+				Auth:    &v1beta1.TemporalUIAuthSpec{OIDC: validUIOIDCSpec()},
+			},
+			expectedErr: "spec.ui.auth: Forbidden: temporal ui version < 2.0.0 doesn't support configuring authentication using environment variables",
+		},
+		"oidc scopes on a ui version ignoring them": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Version: "2.8.0",
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: func() *v1beta1.TemporalUIOIDCAuthSpec {
+						o := validUIOIDCSpec()
+						o.Scopes = []string{"openid"}
+						return o
+					}(),
+				},
+			},
+			expectedErr: "spec.ui.auth.oidc.scopes: Forbidden: temporal ui version < 2.9.0 ignores the requested oidc scopes",
+		},
+		"inlined client secret in the extra env escape hatch": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					OIDC: validUIOIDCSpec(),
+					ExtraEnv: []corev1.EnvVar{
+						{Name: "TEMPORAL_AUTH_CLIENT_SECRET", Value: "s3cr3t"},
+					},
+				},
+			},
+			expectedErr: "spec.ui.auth.extraEnv[0]: Forbidden: TEMPORAL_AUTH_CLIENT_SECRET can't be set to an inline value",
+		},
+		"client secret from a secret reference in the extra env escape hatch": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					ExtraEnv: []corev1.EnvVar{
+						{
+							Name: "TEMPORAL_AUTH_CLIENT_SECRET",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "ui-oidc"},
+									Key:                  "secret",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"unnamed extra environment variable": {
+			ui: &v1beta1.TemporalUISpec{
+				Enabled: true,
+				Auth: &v1beta1.TemporalUIAuthSpec{
+					ExtraEnv: []corev1.EnvVar{{Value: "true"}},
+				},
+			},
+			expectedErr: "spec.ui.auth.extraEnv[0].name: Required value",
+		},
+	}
+
+	wh := &webhooks.TemporalClusterWebhook{AvailableAPIs: &discovery.AvailableAPIs{}}
+
+	for name, test := range tests {
+		t.Run(name, func(tt *testing.T) {
+			_, err := wh.ValidateCreate(context.Background(), newUIAuthCluster(test.ui))
+			if test.expectedErr != "" {
+				require.Error(tt, err)
+				assert.Contains(tt, err.Error(), test.expectedErr)
+				return
+			}
+			assert.NoError(tt, err)
+		})
+	}
+}
+
+// TestValidateCreate_UIAuthNonSemverVersionWarning ensures users running a ui image
+// tagged with something else than a semantic version are told the operator can't
+// check their auth configuration against it.
+func TestValidateCreate_UIAuthNonSemverVersionWarning(t *testing.T) {
+	wh := &webhooks.TemporalClusterWebhook{AvailableAPIs: &discovery.AvailableAPIs{}}
+
+	cluster := newUIAuthCluster(&v1beta1.TemporalUISpec{
+		Enabled: true,
+		Version: "latest",
+		Auth:    &v1beta1.TemporalUIAuthSpec{OIDC: validUIOIDCSpec()},
+	})
+
+	warns, err := wh.ValidateCreate(context.Background(), cluster)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(warns, "\n"), `Can't parse the ui version "latest" as a semantic version`)
 }

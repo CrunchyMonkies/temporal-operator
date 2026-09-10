@@ -18,6 +18,7 @@
 package v1beta1
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -597,6 +598,72 @@ type TemporalUISpec struct {
 	// Service is an optional service resource configuration for the UI.
 	// +optional
 	Service *ObjectMetaOverride `json:"service,omitempty"`
+	// Auth allows configuring authentication on the web ui.
+	// It requires the ui to be enabled.
+	// +optional
+	Auth *TemporalUIAuthSpec `json:"auth,omitempty"`
+}
+
+// TemporalUIAuthSpec defines the authentication configuration of the temporal web ui.
+type TemporalUIAuthSpec struct {
+	// OIDC holds the OpenID Connect provider configuration used by the web ui to
+	// authenticate users. It is mapped to the ui's TEMPORAL_AUTH_* environment variables.
+	// +optional
+	OIDC *TemporalUIOIDCAuthSpec `json:"oidc,omitempty"`
+	// ExtraEnv is an escape hatch for authentication settings which are not covered by
+	// the typed configuration above, such as provider-specific options.
+	// Those variables are set on the ui container and take precedence over the variables
+	// computed by the operator, which makes them usable to tweak any generated value.
+	// See https://docs.temporal.io/references/web-ui-environment-variables for the
+	// available variables.
+	// +optional
+	ExtraEnv []corev1.EnvVar `json:"extraEnv,omitempty"`
+}
+
+// TemporalUIOIDCAuthSpec defines the OIDC configuration of the temporal web ui.
+type TemporalUIOIDCAuthSpec struct {
+	// ProviderURL is the OIDC provider's base URL. The ui discovers the provider's
+	// endpoints using ${providerUrl}/.well-known/openid-configuration.
+	// +kubebuilder:validation:MinLength=1
+	ProviderURL string `json:"providerUrl"`
+	// ClientID is the OIDC client identifier the ui authenticates with.
+	// +kubebuilder:validation:MinLength=1
+	ClientID string `json:"clientId"`
+	// ClientSecretRef is a reference to the secret holding the OIDC client secret.
+	// The secret must live in the same namespace as the temporal cluster.
+	// The client secret can only be provided using a secret reference, it can't be inlined
+	// in the cluster's spec.
+	// If the key is not set, it defaults to "clientSecret".
+	ClientSecretRef *SecretKeyReference `json:"clientSecretRef"`
+	// Scopes is the list of OIDC scopes requested by the ui.
+	// When left empty the ui uses its own default scopes.
+	// Requires temporal ui >= 2.9.0, older ui versions ignore this setting.
+	// +optional
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURL is the URL the OIDC provider redirects to once the user is authenticated.
+	// It's the ui's callback URL, which is the ui's external URL suffixed by /auth/sso/callback.
+	// +kubebuilder:validation:MinLength=1
+	RedirectURL string `json:"redirectUrl"`
+}
+
+// AuthEnabled returns true if the ui is enabled and has an authentication configuration.
+func (s *TemporalUISpec) AuthEnabled() bool {
+	return s != nil && s.Enabled && s.Auth != nil
+}
+
+// OIDCAuthEnabled returns true if the ui is enabled and has an OIDC configuration.
+func (s *TemporalUISpec) OIDCAuthEnabled() bool {
+	return s.AuthEnabled() && s.Auth.OIDC != nil
+}
+
+// ParsedVersion returns the ui version parsed as a semantic version.
+// The ui version is a free-form image tag, so it may not be a valid semantic
+// version, in which case an error is returned.
+func (s *TemporalUISpec) ParsedVersion() (*version.Version, error) {
+	if s == nil {
+		return nil, errors.New("no ui spec provided")
+	}
+	return version.NewVersionFromString(s.Version)
 }
 
 // TemporalAdminToolsSpec defines parameters for the temporal admin tools within a Temporal cluster deployment.
