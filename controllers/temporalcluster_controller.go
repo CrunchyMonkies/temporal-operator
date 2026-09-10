@@ -143,6 +143,16 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		v1beta1.SetTemporalClusterReady(cluster, metav1.ConditionUnknown, v1beta1.ProgressingReason, "")
 	}
 
+	// Maintenance mode is reported before anything else is attempted, so tooling watching the
+	// condition can tell a cluster that is down on purpose from one that is down because a
+	// reconcile below failed.
+	if cluster.Spec.Maintenance.IsEnabled() {
+		v1beta1.SetTemporalClusterMaintenance(cluster, metav1.ConditionTrue, v1beta1.ClusterPausedReason,
+			"cluster is in maintenance mode: services are scaled to 0 and persistence jobs are held back")
+	} else {
+		v1beta1.SetTemporalClusterMaintenance(cluster, metav1.ConditionFalse, v1beta1.ClusterResumedReason, "")
+	}
+
 	// Everything below this point is created in the resolved target, which is the cluster the
 	// custom resource itself lives in unless it says otherwise.
 	target, err := r.Resolver.For(ctx, r.Client, cluster.Spec.TargetClusterRef, cluster.GetNamespace())
@@ -168,7 +178,13 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	if requeueAfter, err := r.reconcilePersistence(ctx, cluster, target); err != nil || requeueAfter > 0 {
+	if cluster.Spec.Maintenance.IsEnabled() {
+		// The whole point of maintenance mode is that nothing touches the datastores while they're
+		// being worked on, so no schema setup or migration job is created. The datastores, their
+		// PVCs and their credentials are left exactly as they are; only the status fields the rest
+		// of the reconcile reads are kept populated.
+		r.reconcilePersistenceStatus(cluster)
+	} else if requeueAfter, err := r.reconcilePersistence(ctx, cluster, target); err != nil || requeueAfter > 0 {
 		if err != nil {
 			logger.Error(err, "Can't reconcile persistence")
 			if requeueAfter == 0 {
@@ -281,9 +297,15 @@ func (r *TemporalClusterReconciler) reconcileResources(ctx context.Context, temp
 		temporalCluster.Status.Version = temporalCluster.Spec.Version.String()
 	}
 
-	if status.IsClusterReady(temporalCluster) {
+	switch {
+	case temporalCluster.Spec.Maintenance.IsEnabled():
+		// A deployment scaled to 0 reports itself as available, so readiness has to come from the
+		// spec here: otherwise a cluster serving nothing at all would keep claiming to be ready.
+		v1beta1.SetTemporalClusterReady(temporalCluster, metav1.ConditionFalse, v1beta1.ClusterPausedReason,
+			"cluster is in maintenance mode")
+	case status.IsClusterReady(temporalCluster):
 		v1beta1.SetTemporalClusterReady(temporalCluster, metav1.ConditionTrue, v1beta1.ServicesReadyReason, "")
-	} else {
+	default:
 		v1beta1.SetTemporalClusterReady(temporalCluster, metav1.ConditionFalse, v1beta1.ServicesNotReadyReason, "")
 	}
 

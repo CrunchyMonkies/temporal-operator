@@ -12,6 +12,9 @@ const (
 	ReconcileSuccessCondition string = "ReconcileSuccess"
 	// ReadyCondition indicates the cluster is ready to receive traffic.
 	ReadyCondition string = "Ready"
+	// MaintenanceCondition indicates the cluster is in maintenance mode: its services are scaled
+	// to zero on purpose, and no persistence schema job runs, until maintenance is turned off.
+	MaintenanceCondition string = "Maintenance"
 )
 
 const (
@@ -45,6 +48,11 @@ const (
 	// TargetClusterResolutionFailedReason signals an error while resolving the target cluster a
 	// resource references.
 	TargetClusterResolutionFailedReason string = "TargetClusterResolutionFailed"
+	// ClusterPausedReason signals the cluster is in maintenance mode, so its services are
+	// deliberately scaled to zero rather than failing to come up.
+	ClusterPausedReason string = "ClusterPaused"
+	// ClusterResumedReason signals the cluster is not in maintenance mode.
+	ClusterResumedReason string = "ClusterResumed"
 )
 
 // SetTemporalClusterReconcileSuccess sets the ReconcileSuccessCondition status for a temporal cluster.
@@ -83,6 +91,21 @@ func GetTemporalClusterReadyCondition(c *TemporalCluster) (*metav1.Condition, bo
 func SetTemporalClusterReady(c *TemporalCluster, status metav1.ConditionStatus, reason, message string) {
 	condition := metav1.Condition{
 		Type:               ReadyCondition,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: c.GetGeneration(),
+		Reason:             reason,
+		Status:             status,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&c.Status.Conditions, condition)
+}
+
+// SetTemporalClusterMaintenance sets the MaintenanceCondition status for a temporal cluster, which
+// is what lets tooling tell a cluster that is down on purpose from one that is down because it
+// broke.
+func SetTemporalClusterMaintenance(c *TemporalCluster, status metav1.ConditionStatus, reason, message string) {
+	condition := metav1.Condition{
+		Type:               MaintenanceCondition,
 		LastTransitionTime: metav1.Now(),
 		ObservedGeneration: c.GetGeneration(),
 		Reason:             reason,

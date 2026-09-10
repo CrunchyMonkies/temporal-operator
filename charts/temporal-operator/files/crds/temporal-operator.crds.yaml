@@ -106,6 +106,10 @@ spec:
         - jsonPath: .status.conditions[?(@.type == 'ReconcileSuccess')].status
           name: ReconcileSuccess
           type: string
+        - jsonPath: .status.conditions[?(@.type == 'Maintenance')].status
+          name: Maintenance
+          priority: 1
+          type: string
         - jsonPath: .metadata.creationTimestamp
           name: Age
           type: date
@@ -757,6 +761,31 @@ spec:
                         issued certificate's duration. Minimum accepted value is 5 minutes.
                         Useless if mTLS provider is not cert-manager.
                       type: string
+                  type: object
+                maintenance:
+                  description: |-
+                    Maintenance takes the cluster offline for maintenance work such as a database upgrade,
+                    scaling every temporal service deployment to 0 and holding back the schema setup and
+                    migration jobs, while leaving the datastores and their PVCs, secrets and certificates
+                    untouched.
+                  properties:
+                    enabled:
+                      default: false
+                      description: Enabled puts the cluster in maintenance mode.
+                      type: boolean
+                    includeAdminTools:
+                      default: false
+                      description: |-
+                        IncludeAdminTools also scales the admin tools deployment to 0 while in maintenance mode.
+                        Defaults to false, which leaves the admin tools pod up as a shell for the maintenance work
+                        itself.
+                      type: boolean
+                    includeUI:
+                      default: true
+                      description: |-
+                        IncludeUI also scales the web UI deployment to 0 while in maintenance mode.
+                        Defaults to true: the UI has nothing to talk to once the frontend is offline.
+                      type: boolean
                   type: object
                 metrics:
                   description: Metrics allows configuration of scraping endpoints for stats. prometheus or m3.
