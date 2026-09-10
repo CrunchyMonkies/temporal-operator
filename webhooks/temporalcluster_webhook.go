@@ -195,6 +195,30 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 		}
 	}
 
+	// Validate the kubernetes Service customizations of the frontend and the UI.
+	if cluster.Spec.Services != nil && cluster.Spec.Services.Frontend != nil {
+		frontendService := cluster.Spec.Services.Frontend.Service
+		path := field.NewPath("spec", "services", "frontend", "service")
+
+		serviceWarnings, serviceErrors := frontendService.Validate(path)
+		warns = append(warns, serviceWarnings...)
+		errs = append(errs, serviceErrors...)
+
+		// Exposing the frontend outside of the kubernetes cluster bypasses any mTLS-terminating
+		// ingress deployed in front of it, warn the user if the frontend mTLS is not enabled.
+		if frontendService.ExposedOutsideCluster() && (cluster.Spec.MTLS == nil || !cluster.Spec.MTLS.FrontendEnabled()) {
+			warns = append(warns,
+				fmt.Sprintf("%s exposes the cluster's frontend outside of the kubernetes cluster while mTLS is disabled for the frontend (spec.mTLS.frontend.enabled)", path.Child("type").String()),
+			)
+		}
+	}
+
+	if cluster.Spec.UI != nil {
+		serviceWarnings, serviceErrors := cluster.Spec.UI.Service.Validate(field.NewPath("spec", "ui", "service"))
+		warns = append(warns, serviceWarnings...)
+		errs = append(errs, serviceErrors...)
+	}
+
 	// Check that the user-specified version is not marked as broken.
 	// The suggested version skips any release that is itself broken, so users
 	// are not sent from one rejected version straight to another.
