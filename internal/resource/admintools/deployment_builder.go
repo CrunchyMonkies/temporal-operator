@@ -122,6 +122,9 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	}
 
 	deployment.Spec.Replicas = ptr.To[int32](1)
+	if b.instance.Spec.Maintenance.ScalesDownAdminTools() {
+		deployment.Spec.Replicas = ptr.To[int32](0)
+	}
 
 	deployment.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: metadata.LabelsSelector(b.instance, "admintools"),

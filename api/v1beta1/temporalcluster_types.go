@@ -1028,6 +1028,47 @@ func (GCSArchiver) CredentialsFileMountPath() string {
 	return "/etc/archival/credentials.json"
 }
 
+// MaintenanceSpec takes a cluster offline without deleting it.
+//
+// The operator keeps owning every resource it created, but stops running the cluster: the temporal
+// service deployments are scaled to 0 and no schema setup or migration job is started. Datastores,
+// their PVCs, secrets and certificates are never touched by maintenance mode — it only stops the
+// workloads that talk to them, which is what makes a database upgrade possible without deleting the
+// cluster or losing a manual scale-down to the next reconcile.
+type MaintenanceSpec struct {
+	// Enabled puts the cluster in maintenance mode.
+	// +optional
+	// +kubebuilder:default:=false
+	Enabled bool `json:"enabled,omitempty"`
+	// IncludeUI also scales the web UI deployment to 0 while in maintenance mode.
+	// Defaults to true: the UI has nothing to talk to once the frontend is offline.
+	// +optional
+	// +kubebuilder:default:=true
+	IncludeUI *bool `json:"includeUI,omitempty"`
+	// IncludeAdminTools also scales the admin tools deployment to 0 while in maintenance mode.
+	// Defaults to false, which leaves the admin tools pod up as a shell for the maintenance work
+	// itself.
+	// +optional
+	// +kubebuilder:default:=false
+	IncludeAdminTools *bool `json:"includeAdminTools,omitempty"`
+}
+
+// IsEnabled reports whether the cluster is in maintenance mode, and with it whether the temporal
+// services are scaled to 0 and the persistence jobs are held back.
+func (s *MaintenanceSpec) IsEnabled() bool {
+	return s != nil && s.Enabled
+}
+
+// ScalesDownUI reports whether maintenance mode also takes the web UI offline.
+func (s *MaintenanceSpec) ScalesDownUI() bool {
+	return s.IsEnabled() && (s.IncludeUI == nil || *s.IncludeUI)
+}
+
+// ScalesDownAdminTools reports whether maintenance mode also takes the admin tools offline.
+func (s *MaintenanceSpec) ScalesDownAdminTools() bool {
+	return s.IsEnabled() && s.IncludeAdminTools != nil && *s.IncludeAdminTools
+}
+
 // TemporalClusterSpec defines the desired state of Cluster.
 type TemporalClusterSpec struct {
 	// Image defines the temporal server docker image the cluster should use for each services.
@@ -1091,6 +1132,12 @@ type TemporalClusterSpec struct {
 	// possibility unless the operator has been configured for multi-cluster operation.
 	// +optional
 	TargetClusterRef *ObjectReference `json:"targetClusterRef,omitempty"`
+	// Maintenance takes the cluster offline for maintenance work such as a database upgrade,
+	// scaling every temporal service deployment to 0 and holding back the schema setup and
+	// migration jobs, while leaving the datastores and their PVCs, secrets and certificates
+	// untouched.
+	// +optional
+	Maintenance *MaintenanceSpec `json:"maintenance,omitempty"`
 	// OperatorClientAddress overrides the "host:port" the operator connects to when it needs to
 	// talk to this cluster's frontend, which it does to reconcile TemporalNamespaces and
 	// TemporalSchedules. Set it when the operator can't resolve the frontend's in-cluster service
@@ -1173,6 +1220,7 @@ func (s *TemporalClusterStatus) AddServiceStatus(status *ServiceStatus) {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type == 'Ready')].status"
 // +kubebuilder:printcolumn:name="ReconcileSuccess",type="string",JSONPath=".status.conditions[?(@.type == 'ReconcileSuccess')].status"
+// +kubebuilder:printcolumn:name="Maintenance",type="string",JSONPath=".status.conditions[?(@.type == 'Maintenance')].status",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:webhook:path=/validate-temporal-io-v1beta1-temporalcluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=temporal.io,resources=temporalclusters,verbs=create;update,versions=v1beta1,name=vtemporalc.kb.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/mutate-temporal-io-v1beta1-temporalcluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=temporal.io,resources=temporalclusters,verbs=create;update,versions=v1beta1,name=mtemporalc.kb.io,admissionReviewVersions=v1

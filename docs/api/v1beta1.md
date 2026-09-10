@@ -312,6 +312,23 @@ possibility unless the operator has been configured for multi-cluster operation.
 </tr>
 <tr>
 <td>
+<code>maintenance</code><br>
+<em>
+<a href="#temporal.io/v1beta1.MaintenanceSpec">
+MaintenanceSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Maintenance takes the cluster offline for maintenance work such as a database upgrade,
+scaling every temporal service deployment to 0 and holding back the schema setup and
+migration jobs, while leaving the datastores and their PVCs, secrets and certificates
+untouched.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>operatorClientAddress</code><br>
 <em>
 string
@@ -2113,6 +2130,71 @@ bool
 <p>PermissiveMetrics allows insecure HTTP requests to the metrics endpoint.
 This is handy if the metrics collector does not support mTLS.
 Useless if mTLS provider is not istio</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.MaintenanceSpec">MaintenanceSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalClusterSpec">TemporalClusterSpec</a>)
+</p>
+<p>MaintenanceSpec takes a cluster offline without deleting it.</p>
+<p>The operator keeps owning every resource it created, but stops running the cluster: the temporal
+service deployments are scaled to 0 and no schema setup or migration job is started. Datastores,
+their PVCs, secrets and certificates are never touched by maintenance mode — it only stops the
+workloads that talk to them, which is what makes a database upgrade possible without deleting the
+cluster or losing a manual scale-down to the next reconcile.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>enabled</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Enabled puts the cluster in maintenance mode.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>includeUI</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>IncludeUI also scales the web UI deployment to 0 while in maintenance mode.
+Defaults to true: the UI has nothing to talk to once the frontend is offline.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>includeAdminTools</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>IncludeAdminTools also scales the admin tools deployment to 0 while in maintenance mode.
+Defaults to false, which leaves the admin tools pod up as a shell for the maintenance work
+itself.</p>
 </td>
 </tr>
 </tbody>
@@ -5230,6 +5312,23 @@ ObjectReference
 <p>TargetClusterRef references the TemporalTargetCluster this cluster&rsquo;s resources should be
 created in. Defaults to the cluster this resource itself lives in, which is the only
 possibility unless the operator has been configured for multi-cluster operation.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>maintenance</code><br>
+<em>
+<a href="#temporal.io/v1beta1.MaintenanceSpec">
+MaintenanceSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Maintenance takes the cluster offline for maintenance work such as a database upgrade,
+scaling every temporal service deployment to 0 and holding back the schema setup and
+migration jobs, while leaving the datastores and their PVCs, secrets and certificates
+untouched.</p>
 </td>
 </tr>
 <tr>
