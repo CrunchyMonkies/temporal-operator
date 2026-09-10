@@ -30,10 +30,11 @@ const (
 	// when the user didn't provide one.
 	defaultOIDCClientSecretKey = "clientSecret"
 
-	authEnabledEnvVarName      = "TEMPORAL_AUTH_ENABLED"
-	authTypeEnvVarName         = "TEMPORAL_AUTH_TYPE"
-	authProviderURLEnvVarName  = "TEMPORAL_AUTH_PROVIDER_URL"
-	authClientIDEnvVarName     = "TEMPORAL_AUTH_CLIENT_ID"
+	authEnabledEnvVarName     = "TEMPORAL_AUTH_ENABLED"
+	authTypeEnvVarName        = "TEMPORAL_AUTH_TYPE"
+	authProviderURLEnvVarName = "TEMPORAL_AUTH_PROVIDER_URL"
+	authClientIDEnvVarName    = "TEMPORAL_AUTH_CLIENT_ID"
+	// #nosec G101 -- constant holds an env var name, not a credential.
 	authClientSecretEnvVarName = "TEMPORAL_AUTH_CLIENT_SECRET"
 	authCallbackURLEnvVarName  = "TEMPORAL_AUTH_CALLBACK_URL"
 	authScopesEnvVarName       = "TEMPORAL_AUTH_SCOPES"

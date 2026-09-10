@@ -28,6 +28,7 @@ func (m *MTLSSpec) Validate() (admission.Warnings, field.ErrorList) {
 }
 
 // clientSecretEnvVarName is the ui's environment variable holding the OIDC client secret.
+// #nosec G101 -- constant holds an env var name, not a credential.
 const clientSecretEnvVarName = "TEMPORAL_AUTH_CLIENT_SECRET"
 
 // Validate checks that the ui's authentication configuration can be applied to the
