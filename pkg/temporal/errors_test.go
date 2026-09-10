@@ -93,7 +93,7 @@ func TestCallRecorderExplain(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			recorder := temporal.NewCallRecorder()
-			replay(t, recorder, test.attempts...)
+			_ = replay(t, recorder, test.attempts...)
 
 			assert.Equal(t, test.expected, recorder.Explain(test.callErr).Error())
 		})
@@ -102,7 +102,7 @@ func TestCallRecorderExplain(t *testing.T) {
 
 func TestCallRecorderExplainNilError(t *testing.T) {
 	recorder := temporal.NewCallRecorder()
-	replay(t, recorder, status.Error(codes.Internal, "AccessDenied"))
+	_ = replay(t, recorder, status.Error(codes.Internal, "AccessDenied"))
 
 	assert.NoError(t, recorder.Explain(nil))
 }
@@ -114,7 +114,7 @@ func TestCallRecorderExplainKeepsBothErrors(t *testing.T) {
 	alreadyExists := serviceerror.NewNamespaceAlreadyExists("namespace already exists")
 
 	recorder := temporal.NewCallRecorder()
-	replay(t, recorder, alreadyExists)
+	_ = replay(t, recorder, alreadyExists)
 
 	err := recorder.Explain(context.DeadlineExceeded)
 	require.Error(t, err)
