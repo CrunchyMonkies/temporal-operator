@@ -144,6 +144,21 @@ Kubernetes core/v1.ResourceRequirements
 </tr>
 <tr>
 <td>
+<code>jobScheduling</code><br>
+<em>
+<a href="#temporal.io/v1beta1.JobSchedulingSpec">
+JobSchedulingSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>JobScheduling defines the scheduling constraints (tolerations and affinity)
+applied to the pods of all jobs the operator creates.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>numHistoryShards</code><br>
 <em>
 int32
@@ -1895,6 +1910,57 @@ bool
 <td>
 <em>(Optional)</em>
 <p>Enabled defines if the operator should enable mTLS for network between cluster nodes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<h3 id="temporal.io/v1beta1.JobSchedulingSpec">JobSchedulingSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.TemporalClusterSpec">TemporalClusterSpec</a>)
+</p>
+<p>JobSchedulingSpec defines the scheduling constraints applied to the pods of the
+jobs the operator creates, such as the persistence schema setup and schema update jobs.
+It allows those jobs to run on tainted or dedicated nodes.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>tolerations</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#toleration-v1-core">
+[]Kubernetes core/v1.Toleration
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Tolerations allows the jobs&rsquo; pods to schedule onto nodes with matching taints.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>affinity</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#affinity-v1-core">
+Kubernetes core/v1.Affinity
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Affinity defines the jobs&rsquo; pods scheduling constraints, most notably node affinity.</p>
 </td>
 </tr>
 </tbody>
@@ -5062,6 +5128,21 @@ Kubernetes core/v1.ResourceRequirements
 <td>
 <em>(Optional)</em>
 <p>JobInitContainers adds a list of init containers to the setup&rsquo;s jobs.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>jobScheduling</code><br>
+<em>
+<a href="#temporal.io/v1beta1.JobSchedulingSpec">
+JobSchedulingSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>JobScheduling defines the scheduling constraints (tolerations and affinity)
+applied to the pods of all jobs the operator creates.</p>
 </td>
 </tr>
 <tr>

@@ -1028,6 +1028,34 @@ func (GCSArchiver) CredentialsFileMountPath() string {
 	return "/etc/archival/credentials.json"
 }
 
+// JobSchedulingSpec defines the scheduling constraints applied to the pods of the
+// jobs the operator creates, such as the persistence schema setup and schema update jobs.
+// It allows those jobs to run on tainted or dedicated nodes.
+type JobSchedulingSpec struct {
+	// Tolerations allows the jobs' pods to schedule onto nodes with matching taints.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// Affinity defines the jobs' pods scheduling constraints, most notably node affinity.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+}
+
+// GetTolerations returns the tolerations to set on the operator-managed jobs' pods.
+func (s *JobSchedulingSpec) GetTolerations() []corev1.Toleration {
+	if s == nil {
+		return nil
+	}
+	return s.Tolerations
+}
+
+// GetAffinity returns the affinity to set on the operator-managed jobs' pods.
+func (s *JobSchedulingSpec) GetAffinity() *corev1.Affinity {
+	if s == nil {
+		return nil
+	}
+	return s.Affinity
+}
+
 // TemporalClusterSpec defines the desired state of Cluster.
 type TemporalClusterSpec struct {
 	// Image defines the temporal server docker image the cluster should use for each services.
@@ -1052,6 +1080,10 @@ type TemporalClusterSpec struct {
 	// JobInitContainers adds a list of init containers to the setup's jobs.
 	// +optional
 	JobInitContainers []corev1.Container `json:"jobInitContainers,omitempty"`
+	// JobScheduling defines the scheduling constraints (tolerations and affinity)
+	// applied to the pods of all jobs the operator creates.
+	// +optional
+	JobScheduling *JobSchedulingSpec `json:"jobScheduling,omitempty"`
 	// NumHistoryShards is the desired number of history shards.
 	// This field is immutable.
 	//+kubebuilder:validation:Minimum=1

@@ -136,6 +136,8 @@ func (b *SchemaJobBuilder) Build() client.Object {
 						},
 					},
 					InitContainers:                b.instance.Spec.JobInitContainers,
+					Tolerations:                   b.instance.Spec.JobScheduling.GetTolerations(),
+					Affinity:                      b.instance.Spec.JobScheduling.GetAffinity(),
 					TerminationGracePeriodSeconds: ptr.To[int64](30),
 					DNSPolicy:                     corev1.DNSClusterFirst,
 					SecurityContext:               &corev1.PodSecurityContext{},
