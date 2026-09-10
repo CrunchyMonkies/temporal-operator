@@ -62,6 +62,37 @@ type LogSpec struct {
 	Development bool `json:"development"`
 }
 
+// LivenessProbeSpec customizes the liveness probe the operator sets on a
+// component's container. When left empty the operator's default probe for that
+// component is used.
+type LivenessProbeSpec struct {
+	// Disabled removes the liveness probe from the container.
+	// Use it when the default probe doesn't fit and no replacement is wanted.
+	// +optional
+	// +kubebuilder:default:=false
+	Disabled bool `json:"disabled,omitempty"`
+	// Probe replaces the operator's default liveness probe.
+	// It is ignored when disabled is set.
+	// +optional
+	Probe *corev1.Probe `json:"probe,omitempty"`
+}
+
+// Resolve returns the liveness probe to set on the container, given the
+// operator's default probe for the component. It is nil-safe: an unset spec
+// keeps the default.
+func (s *LivenessProbeSpec) Resolve(defaultProbe *corev1.Probe) *corev1.Probe {
+	if s == nil {
+		return defaultProbe
+	}
+	if s.Disabled {
+		return nil
+	}
+	if s.Probe != nil {
+		return s.Probe
+	}
+	return defaultProbe
+}
+
 // ServiceSpec contains a temporal service specifications.
 type ServiceSpec struct {
 	// Port defines a custom gRPC port for the service.
@@ -93,6 +124,10 @@ type ServiceSpec struct {
 	// More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// LivenessProbe customizes the liveness probe the operator sets on the
+	// service's container. Left empty, the operator's default probe is used.
+	// +optional
+	LivenessProbe *LivenessProbeSpec `json:"livenessProbe,omitempty"`
 	// Overrides adds some overrides to the resources deployed for the service.
 	// Those overrides takes precedence over spec.services.overrides.
 	// +optional
@@ -587,6 +622,10 @@ type TemporalUISpec struct {
 	// More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// LivenessProbe customizes the liveness probe the operator sets on the ui's
+	// container. Left empty, the operator's default probe is used.
+	// +optional
+	LivenessProbe *LivenessProbeSpec `json:"livenessProbe,omitempty"`
 	// Overrides adds some overrides to the resources deployed for the ui.
 	// +optional
 	Overrides *ServiceSpecOverride `json:"overrides,omitempty"`
@@ -615,6 +654,10 @@ type TemporalAdminToolsSpec struct {
 	// More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	// LivenessProbe customizes the liveness probe the operator sets on the admin
+	// tools container. Left empty, the operator's default probe is used.
+	// +optional
+	LivenessProbe *LivenessProbeSpec `json:"livenessProbe,omitempty"`
 	// Overrides adds some overrides to the resources deployed for the ui.
 	// +optional
 	Overrides *ServiceSpecOverride `json:"overrides,omitempty"`

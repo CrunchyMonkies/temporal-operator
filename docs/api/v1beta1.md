@@ -1901,6 +1901,59 @@ bool
 </table>
 </div>
 </div>
+<h3 id="temporal.io/v1beta1.LivenessProbeSpec">LivenessProbeSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#temporal.io/v1beta1.ServiceSpec">ServiceSpec</a>, 
+<a href="#temporal.io/v1beta1.TemporalAdminToolsSpec">TemporalAdminToolsSpec</a>, 
+<a href="#temporal.io/v1beta1.TemporalUISpec">TemporalUISpec</a>)
+</p>
+<p>LivenessProbeSpec customizes the liveness probe the operator sets on a
+component&rsquo;s container. When left empty the operator&rsquo;s default probe for that
+component is used.</p>
+<div class="md-typeset__scrollwrap">
+<div class="md-typeset__table">
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>disabled</code><br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Disabled removes the liveness probe from the container.
+Use it when the default probe doesn&rsquo;t fit and no replacement is wanted.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>probe</code><br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#probe-v1-core">
+Kubernetes core/v1.Probe
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Probe replaces the operator&rsquo;s default liveness probe.
+It is ignored when disabled is set.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
 <h3 id="temporal.io/v1beta1.LogSpec">LogSpec
 </h3>
 <p>
@@ -4440,6 +4493,21 @@ More info: <a href="https://kubernetes.io/docs/concepts/configuration/manage-res
 </tr>
 <tr>
 <td>
+<code>livenessProbe</code><br>
+<em>
+<a href="#temporal.io/v1beta1.LivenessProbeSpec">
+LivenessProbeSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>LivenessProbe customizes the liveness probe the operator sets on the
+service&rsquo;s container. Left empty, the operator&rsquo;s default probe is used.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>overrides</code><br>
 <em>
 <a href="#temporal.io/v1beta1.ServiceSpecOverride">
@@ -4796,6 +4864,21 @@ Kubernetes core/v1.ResourceRequirements
 <em>(Optional)</em>
 <p>Compute Resources required by the ui.
 More info: <a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>livenessProbe</code><br>
+<em>
+<a href="#temporal.io/v1beta1.LivenessProbeSpec">
+LivenessProbeSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>LivenessProbe customizes the liveness probe the operator sets on the admin
+tools container. Left empty, the operator&rsquo;s default probe is used.</p>
 </td>
 </tr>
 <tr>
@@ -6640,6 +6723,21 @@ Kubernetes core/v1.ResourceRequirements
 <em>(Optional)</em>
 <p>Compute Resources required by the ui.
 More info: <a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>livenessProbe</code><br>
+<em>
+<a href="#temporal.io/v1beta1.LivenessProbeSpec">
+LivenessProbeSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>LivenessProbe customizes the liveness probe the operator sets on the ui&rsquo;s
+container. Left empty, the operator&rsquo;s default probe is used.</p>
 </td>
 </tr>
 <tr>

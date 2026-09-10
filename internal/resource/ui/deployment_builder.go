@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -115,6 +116,27 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 		env = append(env, certmanager.GetTLSEnvironmentVariables(b.instance, "TEMPORAL", uiCertsMountPath)...)
 	}
 
+	// The temporal ui server answers /healthz on its http port as soon as it is
+	// serving, without reaching out to the frontend - so a UI that can't talk to
+	// the cluster isn't restarted, only a UI whose http server is gone. Versions
+	// predating that endpoint serve the single page app for it, which answers 200
+	// all the same, so the probe degrades to "the http server is up" rather than
+	// failing.
+	livenessProbe := b.instance.Spec.UI.LivenessProbe.Resolve(&corev1.Probe{
+		InitialDelaySeconds: 30,
+		TimeoutSeconds:      5,
+		PeriodSeconds:       30,
+		SuccessThreshold:    1,
+		FailureThreshold:    5,
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/healthz",
+				Port:   intstr.FromString("http"),
+				Scheme: corev1.URISchemeHTTP,
+			},
+		},
+	})
+
 	deployment.Spec.Replicas = b.instance.Spec.UI.Replicas
 
 	deployment.Spec.Selector = &metav1.LabelSelector{
@@ -139,8 +161,9 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 							Protocol:      corev1.ProtocolTCP,
 						},
 					},
-					Env:          env,
-					VolumeMounts: volumeMounts,
+					LivenessProbe: livenessProbe,
+					Env:           env,
+					VolumeMounts:  volumeMounts,
 				},
 			},
 			Volumes:                       volumes,

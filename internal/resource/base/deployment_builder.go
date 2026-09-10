@@ -87,22 +87,7 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 		metadata.GetAnnotations(b.instance.Name, b.instance.Annotations),
 	)
 
-	// worker has no grpc endpoint so omit liveness probe
-	var livenessProbe *corev1.Probe
-	if b.serviceName != string(primitives.WorkerService) {
-		livenessProbe = &corev1.Probe{
-			InitialDelaySeconds: 150,
-			TimeoutSeconds:      1,
-			PeriodSeconds:       10,
-			SuccessThreshold:    1,
-			FailureThreshold:    3,
-			ProbeHandler: corev1.ProbeHandler{
-				TCPSocket: &corev1.TCPSocketAction{
-					Port: intstr.FromString("rpc"),
-				},
-			},
-		}
-	}
+	livenessProbe := b.service.LivenessProbe.Resolve(b.defaultLivenessProbe())
 
 	envVars := []corev1.EnvVar{
 		{
@@ -419,4 +404,42 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	}
 
 	return nil
+}
+
+// defaultLivenessProbe returns the liveness probe the operator sets on the
+// service's container when the cluster doesn't provide one.
+func (b *DeploymentBuilder) defaultLivenessProbe() *corev1.Probe {
+	if b.serviceName == string(primitives.WorkerService) {
+		// The worker doesn't serve gRPC on its rpc port, so the probe used by the
+		// other services would fail against it. It does join the membership ring,
+		// which is the cheapest signal that the process is alive and still part of
+		// the cluster. The thresholds are deliberately generous - a worker that
+		// answers slowly is not a worker that needs restarting - so it takes two and
+		// a half minutes of a dead listener before a restart.
+		return &corev1.Probe{
+			InitialDelaySeconds: 150,
+			TimeoutSeconds:      5,
+			PeriodSeconds:       30,
+			SuccessThreshold:    1,
+			FailureThreshold:    5,
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromString("membership"),
+				},
+			},
+		}
+	}
+
+	return &corev1.Probe{
+		InitialDelaySeconds: 150,
+		TimeoutSeconds:      1,
+		PeriodSeconds:       10,
+		SuccessThreshold:    1,
+		FailureThreshold:    3,
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{
+				Port: intstr.FromString("rpc"),
+			},
+		},
+	}
 }
