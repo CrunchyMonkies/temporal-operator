@@ -17,8 +17,40 @@
 
 package controllers
 
+import (
+	"errors"
+
+	"go.temporal.io/api/serviceerror"
+)
+
 const (
 	deletionFinalizer = "deletion.finalizers.temporal.io"
 	clusterRefField   = "spec.clusterRef.name"
 	namespaceRefField = "spec.namespaceRef.name"
+
+	// forceDeleteAnnotation, set to "true", makes the deletion path drop the deletion finalizer
+	// without contacting the temporal server. Whatever the resource stands for on the server is
+	// left behind, so this is the last resort for a cluster the operator can no longer reach: it
+	// is opt-in per object, and nothing the controller decides on its own.
+	forceDeleteAnnotation = "temporal.io/force-delete"
 )
+
+// errDeletionBlocked marks a deletion the temporal server refused for a reason no retry can clear.
+// The reconciliation reports it as a terminal error rather than backing off forever against an
+// answer that will not change.
+var errDeletionBlocked = errors.New("deletion blocked by the temporal server")
+
+// deletionRefused reports whether the server refused the deletion itself, as opposed to failing to
+// carry it out. None of these clear on their own: the operator lacks the permission, sends a
+// request the server rejects, or talks to a server that does not implement the deletion.
+func deletionRefused(err error) bool {
+	var (
+		permissionDenied *serviceerror.PermissionDenied
+		invalidArgument  *serviceerror.InvalidArgument
+		unimplemented    *serviceerror.Unimplemented
+	)
+
+	return errors.As(err, &permissionDenied) ||
+		errors.As(err, &invalidArgument) ||
+		errors.As(err, &unimplemented)
+}

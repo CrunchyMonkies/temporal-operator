@@ -59,25 +59,7 @@ func createTestNamespace(ctx context.Context, name string, finalizers ...string)
 
 // createTestCluster reports the cluster ready so namespace reconciliations get past the readiness gate.
 func createTestCluster(ctx context.Context, name string) *v1beta1.TemporalCluster {
-	cluster := &v1beta1.TemporalCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "default",
-		},
-		Spec: v1beta1.TemporalClusterSpec{
-			NumHistoryShards: 1,
-			Persistence: v1beta1.TemporalPersistenceSpec{
-				DefaultStore:    &v1beta1.DatastoreSpec{},
-				VisibilityStore: &v1beta1.DatastoreSpec{},
-			},
-		},
-	}
-	Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-	v1beta1.SetTemporalClusterReady(cluster, metav1.ConditionTrue, v1beta1.ServicesReadyReason, "")
-	Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
-
-	return cluster
+	return createTestClusterWithReadiness(ctx, name, true)
 }
 
 // deleteAfterGetClient stands in for an object that goes away between a reconciliation's Get and
