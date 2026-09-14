@@ -19,6 +19,7 @@ package webhooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -29,6 +30,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	enumsspb "go.temporal.io/server/api/enums/v1"
 	"go.temporal.io/server/common/primitives"
+	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -56,7 +58,7 @@ func (w *TemporalClusterWebhook) aggregateClusterErrors(cluster *v1beta1.Tempora
 }
 
 // Default ensures empty fields have their default value.
-func (w *TemporalClusterWebhook) Default(_ context.Context, cluster *v1beta1.TemporalCluster) error {
+func (w *TemporalClusterWebhook) Default(ctx context.Context, cluster *v1beta1.TemporalCluster) error {
 	if cluster.Spec.Metrics.IsEnabled() {
 		if cluster.Spec.Metrics.Prometheus != nil {
 			// If the user has set the deprecated ListenAddress field and not the new ListenPort,
@@ -76,8 +78,53 @@ func (w *TemporalClusterWebhook) Default(_ context.Context, cluster *v1beta1.Tem
 		}
 	}
 
+	if err := w.refreshDefaultAdminToolsVersion(ctx, cluster); err != nil {
+		return err
+	}
+
 	// Finish by setting default values
 	cluster.Default()
+
+	return nil
+}
+
+// refreshDefaultAdminToolsVersion clears a spec.admintools.version that is the operator's own
+// default rather than the user's choice, so that Default, which runs next, writes the default for
+// the server version the object now has. Without it the default written at creation froze the
+// tag there: after a spec.version bump the admin tools deployment and the schema jobs kept running
+// the old tag, and the schema update job in particular cannot bring the database to the new
+// version with an old admin tools image.
+//
+// The stored value is the default when it equals what the operator would have defaulted for the
+// server version it was stored against, i.e. the old object's, and the update leaves it as is.
+// A value the user typed identically loses nothing: it is kept in step with spec.version, which
+// is what typing the default asks for.
+func (w *TemporalClusterWebhook) refreshDefaultAdminToolsVersion(ctx context.Context, cluster *v1beta1.TemporalCluster) error {
+	if cluster.Spec.AdminTools == nil || cluster.Spec.AdminTools.Version == "" {
+		return nil
+	}
+
+	// Outside an admission request (or on creation) there is no old object to compare against.
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		return nil //nolint:nilerr // A missing request is not a failure, it means there is nothing to compare against.
+	}
+	if req.Operation != admissionv1.Update || len(req.OldObject.Raw) == 0 {
+		return nil
+	}
+
+	old := &v1beta1.TemporalCluster{}
+	if err := json.Unmarshal(req.OldObject.Raw, old); err != nil {
+		return fmt.Errorf("can't decode the previous TemporalCluster: %w", err)
+	}
+
+	if old.Spec.AdminTools == nil || old.Spec.AdminTools.Version != cluster.Spec.AdminTools.Version {
+		return nil
+	}
+
+	if version.IsDefaultAdminToolTag(old.Spec.AdminTools.Version, old.Spec.Version) {
+		cluster.Spec.AdminTools.Version = ""
+	}
 
 	return nil
 }
@@ -243,6 +290,17 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 				),
 			)
 		}
+	}
+
+	// A pinned admin tools tag that is the default for some other server version is almost always
+	// a manifest that copied the default once and was never updated alongside spec.version. The
+	// schema jobs then run with tools that predate the server. The operator only refreshes a
+	// value it wrote itself, so a manifest that keeps re-applying an old default needs a human.
+	if cluster.Spec.AdminTools != nil && version.IsDefaultAdminToolTagForAnotherVersion(cluster.Spec.AdminTools.Version, cluster.Spec.Version) {
+		warns = append(warns, fmt.Sprintf(
+			"spec.admintools.version %q is the admin tools tag for a different Temporal version than spec.version %s (whose tag is %q). The admin tools deployment and the schema setup and update jobs will run the pinned tag; leave spec.admintools.version unset to follow spec.version.",
+			cluster.Spec.AdminTools.Version, cluster.Spec.Version, version.DefaultAdminToolTag(cluster.Spec.Version),
+		))
 	}
 
 	// Check for visibility store depreciations introduced in >= 1.21, that will be removed in >=1.23

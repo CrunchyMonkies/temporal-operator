@@ -608,7 +608,10 @@ type TemporalAdminToolsSpec struct {
 	// Image defines the temporal admin tools docker image the instance should run.
 	// +optional
 	Image string `json:"image"`
-	// Version defines the temporal admin tools version the instance should run.
+	// Version defines the temporal admin tools image tag the instance should run. It applies to
+	// the admin tools deployment and to the schema setup and update jobs alike. When unset, it
+	// defaults to the tag matching spec.version and is kept in step with it across upgrades; when
+	// set to anything else, both are pinned to it and it has to be bumped alongside spec.version.
 	// +optional
 	Version string `json:"version"`
 	// Compute Resources required by the ui.
@@ -1210,6 +1213,32 @@ func (c *TemporalCluster) MTLSWithCertManagerEnabled() bool {
 	return c.Spec.MTLS != nil &&
 		(c.Spec.MTLS.InternodeEnabled() || c.Spec.MTLS.FrontendEnabled()) &&
 		c.Spec.MTLS.Provider == CertManagerMTLSProvider
+}
+
+// AdminToolsImage returns the admin tools image the cluster's resources should
+// run. It honors the user-provided spec.admintools.image and
+// spec.admintools.version, only falling back to the operator's defaults when
+// they are unset.
+//
+// Every resource running admin tools (the admin tools deployment and the schema
+// setup job) resolves its image through this helper so they can't drift apart.
+func (c *TemporalCluster) AdminToolsImage() string {
+	image := defaultTemporalAdmintoolsImage
+	tag := ""
+	if c.Spec.Version != nil {
+		tag = version.DefaultAdminToolTag(c.Spec.Version)
+	}
+
+	if c.Spec.AdminTools != nil {
+		if c.Spec.AdminTools.Image != "" {
+			image = c.Spec.AdminTools.Image
+		}
+		if c.Spec.AdminTools.Version != "" {
+			tag = c.Spec.AdminTools.Version
+		}
+	}
+
+	return fmt.Sprintf("%s:%s", image, tag)
 }
 
 // ChildResourceName returns child resource name using the cluster's name.

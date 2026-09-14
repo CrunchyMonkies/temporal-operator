@@ -213,6 +213,9 @@ func (c *TemporalCluster) Default() {
 		c.Spec.AdminTools.Image = defaultTemporalAdmintoolsImage
 	}
 
+	// Written into the object rather than resolved at build time, so every operator release that
+	// may reconcile it sees a complete image reference. The webhook keeps it in step with
+	// spec.version across upgrades, see TemporalClusterWebhook.refreshDefaultAdminToolsVersion.
 	if c.Spec.AdminTools.Version == "" {
 		c.Spec.AdminTools.Version = version.DefaultAdminToolTag(c.Spec.Version)
 	}

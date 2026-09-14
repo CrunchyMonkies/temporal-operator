@@ -19,6 +19,7 @@ package webhooks_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -28,9 +29,12 @@ import (
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	admissionv1 "k8s.io/api/admission/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 func TestDefault(t *testing.T) {
@@ -140,6 +144,127 @@ func TestDefault(t *testing.T) {
 				assert.NoError(tt, err)
 				assert.EqualValues(tt, test.expectedObject, test.initialObject)
 			}
+		})
+	}
+}
+
+// TestDefaultFillsAdminToolsVersion pins that the default is written into the object, so every
+// operator release that may reconcile it sees a complete image reference.
+func TestDefaultFillsAdminToolsVersion(t *testing.T) {
+	cluster := &v1beta1.TemporalCluster{
+		TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+		ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+		Spec:       v1beta1.TemporalClusterSpec{Version: version.MustNewVersionFromString("1.24.3")},
+	}
+
+	require.NoError(t, (&webhooks.TemporalClusterWebhook{}).Default(context.Background(), cluster))
+
+	require.NotNil(t, cluster.Spec.AdminTools)
+	assert.Equal(t, "1.24.2-tctl-1.18.1-cli-1.0.0", cluster.Spec.AdminTools.Version)
+	assert.Equal(t, "temporalio/admin-tools:1.24.2-tctl-1.18.1-cli-1.0.0", cluster.AdminToolsImage())
+}
+
+func TestDefaultRefreshesAdminToolsVersion(t *testing.T) {
+	clusterWith := func(serverVersion, adminToolsVersion string) *v1beta1.TemporalCluster {
+		return &v1beta1.TemporalCluster{
+			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+			ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+			Spec: v1beta1.TemporalClusterSpec{
+				Version:    version.MustNewVersionFromString(serverVersion),
+				AdminTools: &v1beta1.TemporalAdminToolsSpec{Version: adminToolsVersion},
+			},
+		}
+	}
+
+	updateFrom := func(t *testing.T, old *v1beta1.TemporalCluster) context.Context {
+		t.Helper()
+
+		raw, err := json.Marshal(old)
+		require.NoError(t, err)
+
+		return admission.NewContextWithRequest(context.Background(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Update,
+				OldObject: runtime.RawExtension{Raw: raw},
+			},
+		})
+	}
+
+	tests := map[string]struct {
+		ctx      func(t *testing.T) context.Context
+		object   *v1beta1.TemporalCluster
+		expected string
+	}{
+		"stored default follows a version bump": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.25",
+		},
+		"stored default is unchanged by an unrelated update": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"default persisted by an earlier release is brought up to date": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"))
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"default persisted by an earlier release follows a version bump": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"))
+			},
+			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-0.13.2"),
+			expected: "1.25",
+		},
+		"user pinned tag is kept": {
+			ctx:      func(t *testing.T) context.Context { return updateFrom(t, clusterWith("1.24.3", "1.24.2-custom")) },
+			object:   clusterWith("1.25.2", "1.24.2-custom"),
+			expected: "1.24.2-custom",
+		},
+		"tag the user is changing in this update is kept": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.25.2", "1.25"),
+			expected: "1.25",
+		},
+		"old object without admin tools leaves the tag alone": {
+			ctx: func(t *testing.T) context.Context {
+				old := clusterWith("1.24.3", "")
+				old.Spec.AdminTools = nil
+				return updateFrom(t, old)
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"creation has nothing to compare against": {
+			ctx: func(*testing.T) context.Context {
+				return admission.NewContextWithRequest(context.Background(), admission.Request{
+					AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create},
+				})
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"no admission request in the context": {
+			ctx:      func(*testing.T) context.Context { return context.Background() },
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, (&webhooks.TemporalClusterWebhook{}).Default(test.ctx(t), test.object))
+
+			assert.Equal(t, test.expected, test.object.Spec.AdminTools.Version)
 		})
 	}
 }
@@ -474,6 +599,58 @@ func TestValidateUpdate(t *testing.T) {
 // the documented use case) could be supplied. The server pods resolve the
 // password natively, so the failure surfaces only as a password-authentication
 // error from the very first schema job, which is hard to attribute.
+// TestValidateCreate_StaleAdminToolsVersionWarning covers the manifest that copied the default
+// admin tools tag once and bumped spec.version without it: the operator cannot fix a manifest, so
+// it says what the pinned tag will do.
+func TestValidateCreate_StaleAdminToolsVersionWarning(t *testing.T) {
+	wh := &webhooks.TemporalClusterWebhook{
+		AvailableAPIs: &discovery.AvailableAPIs{},
+	}
+
+	clusterWith := func(adminToolsVersion string) *v1beta1.TemporalCluster {
+		cluster := &v1beta1.TemporalCluster{
+			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+			ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+			Spec: v1beta1.TemporalClusterSpec{
+				Version:    version.MustNewVersionFromString("1.25.2"),
+				AdminTools: &v1beta1.TemporalAdminToolsSpec{Version: adminToolsVersion},
+				Persistence: v1beta1.TemporalPersistenceSpec{
+					DefaultStore: &v1beta1.DatastoreSpec{
+						Name:              "default",
+						SQL:               &v1beta1.SQLSpec{User: "temporal", PluginName: "postgres12", DatabaseName: "temporal", ConnectAddr: "postgres:5432"},
+						PasswordSecretRef: &v1beta1.SecretKeyReference{Name: "pg", Key: "PASSWORD"},
+					},
+					VisibilityStore: &v1beta1.DatastoreSpec{
+						Name:              "visibility",
+						SQL:               &v1beta1.SQLSpec{User: "temporal", PluginName: "postgres12", DatabaseName: "temporal_visibility", ConnectAddr: "postgres:5432"},
+						PasswordSecretRef: &v1beta1.SecretKeyReference{Name: "pg", Key: "PASSWORD"},
+					},
+				},
+			},
+		}
+		cluster.Default()
+
+		return cluster
+	}
+
+	stale := "spec.admintools.version"
+
+	warns, err := wh.ValidateCreate(context.Background(), clusterWith("1.24.2-tctl-1.18.1-cli-1.0.0"))
+	require.NoError(t, err)
+	joined := strings.Join(warns, "\n")
+	assert.Contains(t, joined, stale)
+	assert.Contains(t, joined, `"1.24.2-tctl-1.18.1-cli-1.0.0"`)
+	assert.Contains(t, joined, `"1.25"`)
+
+	warns, err = wh.ValidateCreate(context.Background(), clusterWith("1.25"))
+	require.NoError(t, err)
+	assert.NotContains(t, strings.Join(warns, "\n"), stale)
+
+	warns, err = wh.ValidateCreate(context.Background(), clusterWith("1.25.2-custom"))
+	require.NoError(t, err)
+	assert.NotContains(t, strings.Join(warns, "\n"), stale)
+}
+
 func TestValidateCreate_PasswordCommandWarning(t *testing.T) {
 	wh := &webhooks.TemporalClusterWebhook{
 		AvailableAPIs: &discovery.AvailableAPIs{},
