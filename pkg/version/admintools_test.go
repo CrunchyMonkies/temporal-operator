@@ -61,3 +61,61 @@ func TestDefaultAdminToolTag(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDefaultAdminToolTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		tag      string
+		version  *version.Version
+		expected bool
+	}{
+		{
+			name:     "current default for 1.24",
+			tag:      "1.24.2-tctl-1.18.1-cli-1.0.0",
+			version:  version.MustNewVersionFromString("1.24.3"),
+			expected: true,
+		},
+		{
+			name:     "default an earlier release persisted for 1.24",
+			tag:      "1.24.2-tctl-1.18.1-cli-0.13.2",
+			version:  version.MustNewVersionFromString("1.24.3"),
+			expected: true,
+		},
+		{
+			name:     "current default for 1.26",
+			tag:      "1.26",
+			version:  version.MustNewVersionFromString("1.26.2"),
+			expected: true,
+		},
+		{
+			name:     "default of another version range",
+			tag:      "1.24.2-tctl-1.18.1-cli-1.0.0",
+			version:  version.MustNewVersionFromString("1.26.2"),
+			expected: false,
+		},
+		{
+			name:     "user pinned tag",
+			tag:      "1.24.2-tctl-1.18.1-cli-1.0.0-custom",
+			version:  version.MustNewVersionFromString("1.24.3"),
+			expected: false,
+		},
+		{
+			name:     "empty tag",
+			tag:      "",
+			version:  version.MustNewVersionFromString("1.24.3"),
+			expected: false,
+		},
+		{
+			name:     "nil version",
+			tag:      "1.24.2-tctl-1.18.1-cli-1.0.0",
+			version:  nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, version.IsDefaultAdminToolTag(tt.tag, tt.version))
+		})
+	}
+}

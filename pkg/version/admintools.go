@@ -24,3 +24,39 @@ func DefaultAdminToolTag(version *Version) string {
 
 	return version.String()
 }
+
+// historicalDefaultAdminToolTags lists the tags earlier operator releases used as the default
+// for a version range, and persisted into spec.admintools.version through the defaulting webhook.
+// A stored value matching one of them is the operator's own default, not a user's choice.
+var historicalDefaultAdminToolTags = []struct {
+	from, to *Version
+	tags     []string
+}{
+	{from: V1_24_0, to: V1_25_0, tags: []string{"1.24.2-tctl-1.18.1-cli-0.13.2"}},
+}
+
+// IsDefaultAdminToolTag reports whether tag is what the operator, at any point in its history,
+// would have defaulted the admin tools tag to for the given server version.
+func IsDefaultAdminToolTag(tag string, version *Version) bool {
+	if version == nil || tag == "" {
+		return false
+	}
+
+	if tag == DefaultAdminToolTag(version) {
+		return true
+	}
+
+	for _, historical := range historicalDefaultAdminToolTags {
+		if !version.GreaterOrEqual(historical.from) || !version.LessThan(historical.to) {
+			continue
+		}
+
+		for _, candidate := range historical.tags {
+			if tag == candidate {
+				return true
+			}
+		}
+	}
+
+	return false
+}

@@ -19,6 +19,7 @@ package webhooks_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -28,9 +29,12 @@ import (
 	"github.com/alexandrevilain/temporal-operator/webhooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	admissionv1 "k8s.io/api/admission/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 func TestDefault(t *testing.T) {
@@ -140,6 +144,121 @@ func TestDefault(t *testing.T) {
 				assert.NoError(tt, err)
 				assert.EqualValues(tt, test.expectedObject, test.initialObject)
 			}
+		})
+	}
+}
+
+// TestDefaultLeavesAdminToolsVersionUnset pins that the default is resolved at build time rather
+// than written into the object: a persisted default would freeze the admin tools tag at the
+// server version the cluster was created with.
+func TestDefaultLeavesAdminToolsVersionUnset(t *testing.T) {
+	cluster := &v1beta1.TemporalCluster{
+		TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+		ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+		Spec:       v1beta1.TemporalClusterSpec{Version: version.MustNewVersionFromString("1.24.3")},
+	}
+
+	require.NoError(t, (&webhooks.TemporalClusterWebhook{}).Default(context.Background(), cluster))
+
+	require.NotNil(t, cluster.Spec.AdminTools)
+	assert.Empty(t, cluster.Spec.AdminTools.Version)
+	assert.Equal(t, "temporalio/admin-tools:1.24.2-tctl-1.18.1-cli-1.0.0", cluster.AdminToolsImage())
+}
+
+func TestDefaultUnpersistsAdminToolsVersion(t *testing.T) {
+	clusterWith := func(serverVersion, adminToolsVersion string) *v1beta1.TemporalCluster {
+		return &v1beta1.TemporalCluster{
+			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+			ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+			Spec: v1beta1.TemporalClusterSpec{
+				Version:    version.MustNewVersionFromString(serverVersion),
+				AdminTools: &v1beta1.TemporalAdminToolsSpec{Version: adminToolsVersion},
+			},
+		}
+	}
+
+	updateFrom := func(t *testing.T, old *v1beta1.TemporalCluster) context.Context {
+		t.Helper()
+
+		raw, err := json.Marshal(old)
+		require.NoError(t, err)
+
+		return admission.NewContextWithRequest(context.Background(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Update,
+				OldObject: runtime.RawExtension{Raw: raw},
+			},
+		})
+	}
+
+	tests := map[string]struct {
+		ctx      func(t *testing.T) context.Context
+		object   *v1beta1.TemporalCluster
+		expected string
+	}{
+		"stored default is cleared on a version bump": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "",
+		},
+		"stored default is cleared on an unrelated update": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "",
+		},
+		"default persisted by an earlier release is cleared too": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"))
+			},
+			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-0.13.2"),
+			expected: "",
+		},
+		"user pinned tag is kept": {
+			ctx:      func(t *testing.T) context.Context { return updateFrom(t, clusterWith("1.24.3", "1.24.2-custom")) },
+			object:   clusterWith("1.25.2", "1.24.2-custom"),
+			expected: "1.24.2-custom",
+		},
+		"tag the user is changing in this update is kept": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
+			},
+			object:   clusterWith("1.25.2", "1.25"),
+			expected: "1.25",
+		},
+		"old object without admin tools leaves the tag alone": {
+			ctx: func(t *testing.T) context.Context {
+				old := clusterWith("1.24.3", "")
+				old.Spec.AdminTools = nil
+				return updateFrom(t, old)
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"creation has nothing to compare against": {
+			ctx: func(*testing.T) context.Context {
+				return admission.NewContextWithRequest(context.Background(), admission.Request{
+					AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create},
+				})
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"no admission request in the context": {
+			ctx:      func(*testing.T) context.Context { return context.Background() },
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, (&webhooks.TemporalClusterWebhook{}).Default(test.ctx(t), test.object))
+
+			assert.Equal(t, test.expected, test.object.Spec.AdminTools.Version)
 		})
 	}
 }

@@ -608,7 +608,10 @@ type TemporalAdminToolsSpec struct {
 	// Image defines the temporal admin tools docker image the instance should run.
 	// +optional
 	Image string `json:"image"`
-	// Version defines the temporal admin tools version the instance should run.
+	// Version defines the temporal admin tools image tag the instance should run. It applies to
+	// the admin tools deployment and to the schema setup and update jobs alike. When unset, the
+	// tag matching spec.version is used and follows it across upgrades; when set, both are pinned
+	// to it and it has to be bumped alongside spec.version.
 	// +optional
 	Version string `json:"version"`
 	// Compute Resources required by the ui.
