@@ -78,7 +78,7 @@ func (w *TemporalClusterWebhook) Default(ctx context.Context, cluster *v1beta1.T
 		}
 	}
 
-	if err := w.unpersistDefaultAdminToolsVersion(ctx, cluster); err != nil {
+	if err := w.refreshDefaultAdminToolsVersion(ctx, cluster); err != nil {
 		return err
 	}
 
@@ -88,17 +88,18 @@ func (w *TemporalClusterWebhook) Default(ctx context.Context, cluster *v1beta1.T
 	return nil
 }
 
-// unpersistDefaultAdminToolsVersion clears a spec.admintools.version that is the operator's own
-// default rather than the user's choice. Earlier releases wrote the default into the object, which
-// froze it at the server version the cluster was created with: after a spec.version bump the
-// admin tools deployment and the schema jobs kept running the old tag, and the schema update job
-// in particular cannot bring the database to the new version with an old admin tools image. An
-// empty field is resolved from spec.version at build time instead, so it follows upgrades.
+// refreshDefaultAdminToolsVersion clears a spec.admintools.version that is the operator's own
+// default rather than the user's choice, so that Default, which runs next, writes the default for
+// the server version the object now has. Without it the default written at creation froze the
+// tag there: after a spec.version bump the admin tools deployment and the schema jobs kept running
+// the old tag, and the schema update job in particular cannot bring the database to the new
+// version with an old admin tools image.
 //
 // The stored value is the default when it equals what the operator would have defaulted for the
 // server version it was stored against, i.e. the old object's, and the update leaves it as is.
-// A value the user typed identically loses nothing: the resolved image is the same.
-func (w *TemporalClusterWebhook) unpersistDefaultAdminToolsVersion(ctx context.Context, cluster *v1beta1.TemporalCluster) error {
+// A value the user typed identically loses nothing: it is kept in step with spec.version, which
+// is what typing the default asks for.
+func (w *TemporalClusterWebhook) refreshDefaultAdminToolsVersion(ctx context.Context, cluster *v1beta1.TemporalCluster) error {
 	if cluster.Spec.AdminTools == nil || cluster.Spec.AdminTools.Version == "" {
 		return nil
 	}
@@ -289,6 +290,17 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 				),
 			)
 		}
+	}
+
+	// A pinned admin tools tag that is the default for some other server version is almost always
+	// a manifest that copied the default once and was never updated alongside spec.version. The
+	// schema jobs then run with tools that predate the server. The operator only refreshes a
+	// value it wrote itself, so a manifest that keeps re-applying an old default needs a human.
+	if cluster.Spec.AdminTools != nil && version.IsDefaultAdminToolTagForAnotherVersion(cluster.Spec.AdminTools.Version, cluster.Spec.Version) {
+		warns = append(warns, fmt.Sprintf(
+			"spec.admintools.version %q is the admin tools tag for a different Temporal version than spec.version %s (whose tag is %q). The admin tools deployment and the schema setup and update jobs will run the pinned tag; leave spec.admintools.version unset to follow spec.version.",
+			cluster.Spec.AdminTools.Version, cluster.Spec.Version, version.DefaultAdminToolTag(cluster.Spec.Version),
+		))
 	}
 
 	// Check for visibility store depreciations introduced in >= 1.21, that will be removed in >=1.23

@@ -148,10 +148,9 @@ func TestDefault(t *testing.T) {
 	}
 }
 
-// TestDefaultLeavesAdminToolsVersionUnset pins that the default is resolved at build time rather
-// than written into the object: a persisted default would freeze the admin tools tag at the
-// server version the cluster was created with.
-func TestDefaultLeavesAdminToolsVersionUnset(t *testing.T) {
+// TestDefaultFillsAdminToolsVersion pins that the default is written into the object, so every
+// operator release that may reconcile it sees a complete image reference.
+func TestDefaultFillsAdminToolsVersion(t *testing.T) {
 	cluster := &v1beta1.TemporalCluster{
 		TypeMeta:   v1beta1.TemporalClusterTypeMeta,
 		ObjectMeta: metav1.ObjectMeta{Name: "fake"},
@@ -161,11 +160,11 @@ func TestDefaultLeavesAdminToolsVersionUnset(t *testing.T) {
 	require.NoError(t, (&webhooks.TemporalClusterWebhook{}).Default(context.Background(), cluster))
 
 	require.NotNil(t, cluster.Spec.AdminTools)
-	assert.Empty(t, cluster.Spec.AdminTools.Version)
+	assert.Equal(t, "1.24.2-tctl-1.18.1-cli-1.0.0", cluster.Spec.AdminTools.Version)
 	assert.Equal(t, "temporalio/admin-tools:1.24.2-tctl-1.18.1-cli-1.0.0", cluster.AdminToolsImage())
 }
 
-func TestDefaultUnpersistsAdminToolsVersion(t *testing.T) {
+func TestDefaultRefreshesAdminToolsVersion(t *testing.T) {
 	clusterWith := func(serverVersion, adminToolsVersion string) *v1beta1.TemporalCluster {
 		return &v1beta1.TemporalCluster{
 			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
@@ -196,26 +195,33 @@ func TestDefaultUnpersistsAdminToolsVersion(t *testing.T) {
 		object   *v1beta1.TemporalCluster
 		expected string
 	}{
-		"stored default is cleared on a version bump": {
+		"stored default follows a version bump": {
 			ctx: func(t *testing.T) context.Context {
 				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
 			},
 			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-1.0.0"),
-			expected: "",
+			expected: "1.25",
 		},
-		"stored default is cleared on an unrelated update": {
+		"stored default is unchanged by an unrelated update": {
 			ctx: func(t *testing.T) context.Context {
 				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"))
 			},
 			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-1.0.0"),
-			expected: "",
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
 		},
-		"default persisted by an earlier release is cleared too": {
+		"default persisted by an earlier release is brought up to date": {
+			ctx: func(t *testing.T) context.Context {
+				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"))
+			},
+			object:   clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"),
+			expected: "1.24.2-tctl-1.18.1-cli-1.0.0",
+		},
+		"default persisted by an earlier release follows a version bump": {
 			ctx: func(t *testing.T) context.Context {
 				return updateFrom(t, clusterWith("1.24.3", "1.24.2-tctl-1.18.1-cli-0.13.2"))
 			},
 			object:   clusterWith("1.25.2", "1.24.2-tctl-1.18.1-cli-0.13.2"),
-			expected: "",
+			expected: "1.25",
 		},
 		"user pinned tag is kept": {
 			ctx:      func(t *testing.T) context.Context { return updateFrom(t, clusterWith("1.24.3", "1.24.2-custom")) },
@@ -593,6 +599,58 @@ func TestValidateUpdate(t *testing.T) {
 // the documented use case) could be supplied. The server pods resolve the
 // password natively, so the failure surfaces only as a password-authentication
 // error from the very first schema job, which is hard to attribute.
+// TestValidateCreate_StaleAdminToolsVersionWarning covers the manifest that copied the default
+// admin tools tag once and bumped spec.version without it: the operator cannot fix a manifest, so
+// it says what the pinned tag will do.
+func TestValidateCreate_StaleAdminToolsVersionWarning(t *testing.T) {
+	wh := &webhooks.TemporalClusterWebhook{
+		AvailableAPIs: &discovery.AvailableAPIs{},
+	}
+
+	clusterWith := func(adminToolsVersion string) *v1beta1.TemporalCluster {
+		cluster := &v1beta1.TemporalCluster{
+			TypeMeta:   v1beta1.TemporalClusterTypeMeta,
+			ObjectMeta: metav1.ObjectMeta{Name: "fake"},
+			Spec: v1beta1.TemporalClusterSpec{
+				Version:    version.MustNewVersionFromString("1.25.2"),
+				AdminTools: &v1beta1.TemporalAdminToolsSpec{Version: adminToolsVersion},
+				Persistence: v1beta1.TemporalPersistenceSpec{
+					DefaultStore: &v1beta1.DatastoreSpec{
+						Name:              "default",
+						SQL:               &v1beta1.SQLSpec{User: "temporal", PluginName: "postgres12", DatabaseName: "temporal", ConnectAddr: "postgres:5432"},
+						PasswordSecretRef: &v1beta1.SecretKeyReference{Name: "pg", Key: "PASSWORD"},
+					},
+					VisibilityStore: &v1beta1.DatastoreSpec{
+						Name:              "visibility",
+						SQL:               &v1beta1.SQLSpec{User: "temporal", PluginName: "postgres12", DatabaseName: "temporal_visibility", ConnectAddr: "postgres:5432"},
+						PasswordSecretRef: &v1beta1.SecretKeyReference{Name: "pg", Key: "PASSWORD"},
+					},
+				},
+			},
+		}
+		cluster.Default()
+
+		return cluster
+	}
+
+	stale := "spec.admintools.version"
+
+	warns, err := wh.ValidateCreate(context.Background(), clusterWith("1.24.2-tctl-1.18.1-cli-1.0.0"))
+	require.NoError(t, err)
+	joined := strings.Join(warns, "\n")
+	assert.Contains(t, joined, stale)
+	assert.Contains(t, joined, `"1.24.2-tctl-1.18.1-cli-1.0.0"`)
+	assert.Contains(t, joined, `"1.25"`)
+
+	warns, err = wh.ValidateCreate(context.Background(), clusterWith("1.25"))
+	require.NoError(t, err)
+	assert.NotContains(t, strings.Join(warns, "\n"), stale)
+
+	warns, err = wh.ValidateCreate(context.Background(), clusterWith("1.25.2-custom"))
+	require.NoError(t, err)
+	assert.NotContains(t, strings.Join(warns, "\n"), stale)
+}
+
 func TestValidateCreate_PasswordCommandWarning(t *testing.T) {
 	wh := &webhooks.TemporalClusterWebhook{
 		AvailableAPIs: &discovery.AvailableAPIs{},

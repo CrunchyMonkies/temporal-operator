@@ -1,6 +1,9 @@
 package version
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 // DefaultAdminToolTag returns the tag of the admin tools image for the given version.
 // It's required as 1.24.x had really bad image tagging.
@@ -59,4 +62,29 @@ func IsDefaultAdminToolTag(tag string, version *Version) bool {
 	}
 
 	return false
+}
+
+// knownDefaultAdminToolTag reports whether tag has the shape of a tag the operator defaults to for
+// some server version: one of the fixed strings used for the 1.23 and 1.24 lines, past or present,
+// or the "major.minor" form used from 1.25 on.
+func knownDefaultAdminToolTag(tag string) bool {
+	switch tag {
+	case "1.23.1.1-tctl-1.18.1-cli-0.12.0", "1.24.2-tctl-1.18.1-cli-0.13.2", "1.24.2-tctl-1.18.1-cli-1.0.0":
+		return true
+	}
+
+	return majorMinorTag.MatchString(tag)
+}
+
+var majorMinorTag = regexp.MustCompile(`^\d+\.\d+$`)
+
+// IsDefaultAdminToolTagForAnotherVersion reports whether tag is a default admin tools tag, but not
+// the one for the given server version: a value that was copied from the default of a server
+// version the cluster no longer runs, and pins the admin tools there.
+func IsDefaultAdminToolTagForAnotherVersion(tag string, version *Version) bool {
+	if version == nil || tag == "" || IsDefaultAdminToolTag(tag, version) {
+		return false
+	}
+
+	return knownDefaultAdminToolTag(tag)
 }

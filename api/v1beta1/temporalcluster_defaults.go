@@ -213,10 +213,12 @@ func (c *TemporalCluster) Default() {
 		c.Spec.AdminTools.Image = defaultTemporalAdmintoolsImage
 	}
 
-	// AdminTools.Version is deliberately left empty: AdminToolsImage resolves it from spec.version
-	// at build time, so a cluster that never pinned it keeps following the server version across
-	// upgrades. Persisting the default here would freeze it at whatever version the cluster was
-	// created with.
+	// Written into the object rather than resolved at build time, so every operator release that
+	// may reconcile it sees a complete image reference. The webhook keeps it in step with
+	// spec.version across upgrades, see TemporalClusterWebhook.refreshDefaultAdminToolsVersion.
+	if c.Spec.AdminTools.Version == "" {
+		c.Spec.AdminTools.Version = version.DefaultAdminToolTag(c.Spec.Version)
+	}
 
 	if c.Spec.MTLS != nil {
 		if c.Spec.MTLS.RefreshInterval == nil {
