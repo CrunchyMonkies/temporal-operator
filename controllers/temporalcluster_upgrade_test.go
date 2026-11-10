@@ -84,9 +84,12 @@ func upgradeSpecs(remote bool) {
 			target = &targetcluster.Target{Client: c, Config: cfg, Discovery: dm, AvailableAPIs: apis}
 		}
 		reconciler = &TemporalClusterReconciler{
-			Base:          New(c, scheme.Scheme, recorder, dm),
-			AvailableAPIs: apis,
-			Resolver:      targetcluster.NewResolver(target, scheme.Scheme, logr.Discard()),
+			// Per-resource events go to their own recorder: the specs assert that upgrade events
+			// are recorded through UpgradeRecorder, so they aren't rate-limited away behind them.
+			Base:            New(c, scheme.Scheme, record.NewFakeRecorder(100000), dm),
+			AvailableAPIs:   apis,
+			Resolver:        targetcluster.NewResolver(target, scheme.Scheme, logr.Discard()),
+			UpgradeRecorder: recorder,
 		}
 
 		namespace = "upgrade-" + rand.String(6)

@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -84,7 +85,7 @@ func (r *TemporalClusterReconciler) prepareUpgrade(ctx context.Context, cluster 
 
 	if u.TargetVersion == nil || !u.TargetVersion.Equal(targetVersion.Version) {
 		if u.TargetVersion != nil {
-			r.Recorder.Eventf(cluster, corev1.EventTypeNormal, "UpgradeTargetChanged", "Upgrade target changed from %s to %s", u.TargetVersion, targetVersion)
+			r.upgradeRecorder().Eventf(cluster, corev1.EventTypeNormal, "UpgradeTargetChanged", "Upgrade target changed from %s to %s", u.TargetVersion, targetVersion)
 		}
 		u.TargetVersion = targetVersion.DeepCopy()
 		u.StartVersion = floor.DeepCopy()
@@ -117,7 +118,7 @@ func (r *TemporalClusterReconciler) prepareUpgrade(ctx context.Context, cluster 
 		u.Phase = v1beta1.UpgradePhaseProgressing
 		u.FailedGeneration = 0
 		u.StepStartTime = &metav1.Time{Time: upgradeClock()}
-		r.Recorder.Eventf(cluster, corev1.EventTypeNormal, "UpgradeRetrying", "Retrying upgrade step %s", u.CurrentStep)
+		r.upgradeRecorder().Eventf(cluster, corev1.EventTypeNormal, "UpgradeRetrying", "Retrying upgrade step %s", u.CurrentStep)
 	}
 
 	if u.Phase == "" {
@@ -127,6 +128,17 @@ func (r *TemporalClusterReconciler) prepareUpgrade(ctx context.Context, cluster 
 	u.PendingSteps = pendingSteps(u.CurrentStep, targetVersion)
 
 	return r.upgradeWorkingCopy(cluster), false, nil
+}
+
+// upgradeRecorder returns the recorder for upgrade events. client-go rate-limits events per source
+// and object (a burst of 25, then one every five minutes), and the cluster controller spends that
+// budget on an event per child resource it creates or updates, so upgrade events sent from the same
+// source are dropped exactly when they matter. A dedicated source gets its own budget.
+func (r *TemporalClusterReconciler) upgradeRecorder() record.EventRecorder {
+	if r.UpgradeRecorder != nil {
+		return r.UpgradeRecorder
+	}
+	return r.Recorder
 }
 
 // upgradeWorkingCopy returns a copy of the cluster rendered at the current upgrade step.
@@ -164,7 +176,7 @@ func (r *TemporalClusterReconciler) evaluateUpgrade(ctx context.Context, working
 		if step.GreaterOrEqual(targetVersion) {
 			if u.Phase != v1beta1.UpgradePhaseCompleted {
 				if u.StartVersion != nil && !u.StartVersion.Equal(targetVersion.Version) {
-					r.Recorder.Eventf(working, corev1.EventTypeNormal, "UpgradeCompleted", "Upgrade from %s to %s completed", u.StartVersion, step)
+					r.upgradeRecorder().Eventf(working, corev1.EventTypeNormal, "UpgradeCompleted", "Upgrade from %s to %s completed", u.StartVersion, step)
 				}
 			}
 			u.Phase = v1beta1.UpgradePhaseCompleted
@@ -193,7 +205,7 @@ func (r *TemporalClusterReconciler) evaluateUpgrade(ctx context.Context, working
 		u.PendingSteps = pendingSteps(next, targetVersion)
 		u.Message = fmt.Sprintf("Rolling out %s (from %s, target %s)", next, step, targetVersion)
 		v1beta1.SetTemporalClusterUpgrading(working, metav1.ConditionTrue, v1beta1.UpgradeInProgressReason, u.Message)
-		r.Recorder.Eventf(working, corev1.EventTypeNormal, "UpgradeStepStarted", "Upgrading from %s to %s (target %s)", step, next, targetVersion)
+		r.upgradeRecorder().Eventf(working, corev1.EventTypeNormal, "UpgradeStepStarted", "Upgrading from %s to %s (target %s)", step, next, targetVersion)
 		return upgradeAdvanceRequeue, nil
 	}
 
@@ -239,7 +251,7 @@ func (r *TemporalClusterReconciler) failUpgrade(working *v1beta1.TemporalCluster
 	u.FailedGeneration = working.GetGeneration()
 	u.Message = message
 	v1beta1.SetTemporalClusterUpgrading(working, metav1.ConditionFalse, v1beta1.UpgradeFailedReason, message)
-	r.Recorder.Event(working, corev1.EventTypeWarning, "UpgradeFailed", message)
+	r.upgradeRecorder().Event(working, corev1.EventTypeWarning, "UpgradeFailed", message)
 }
 
 // stepProgress describes what a step is waiting for.

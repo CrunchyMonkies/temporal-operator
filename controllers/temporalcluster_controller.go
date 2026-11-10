@@ -27,6 +27,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,6 +81,9 @@ type TemporalClusterReconciler struct {
 	// through Target.AvailableAPIs.
 	AvailableAPIs *discovery.AvailableAPIs
 	Resolver      *targetcluster.Resolver
+	// UpgradeRecorder records automatic upgrade events under their own source, so they are not
+	// rate-limited away by the per-resource events of the same reconcile. Defaults to Recorder.
+	UpgradeRecorder record.EventRecorder
 
 	// controller is the handle SetupWithManager built. Drift detection watches for a target cluster
 	// can only be registered once that target has been resolved, which happens long after startup,
