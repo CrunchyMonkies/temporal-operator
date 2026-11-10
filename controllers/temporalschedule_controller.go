@@ -53,6 +53,10 @@ type TemporalScheduleReconciler struct {
 	// APIReader bypasses the client's informer cache, for the reads that have to be authoritative
 	// rather than merely fast. See confirmLive.
 	APIReader client.Reader
+	// clusterClient builds the temporal client the reconciliation talks to the frontend through.
+	// Nil means temporal.GetClusterClient; tests replace it to exercise the frontend's answers
+	// without a frontend.
+	clusterClient func(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster, overrides ...temporal.ClientOption) (temporalclient.Client, error)
 }
 
 //+kubebuilder:rbac:groups=temporal.io,resources=temporalschedules,verbs=get;list;watch;create;update;patch;delete
@@ -88,10 +92,25 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}()
 
+	deleting := !schedule.ObjectMeta.DeletionTimestamp.IsZero()
+
+	// The escape hatch for a cluster that is gone for good needs nothing but the object itself, so
+	// it runs ahead of everything that could still fail on the way to the frontend: the namespace
+	// and cluster lookups, the target resolution and the client dial.
+	if deleting && forceDeleteRequested(schedule) {
+		logger.Info("Force-deleting schedule, skipping temporal-side deletion")
+
+		if err := removeFinalizer(ctx, r.Client, schedule, deletionFinalizer); err != nil {
+			return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Removing finalizer", err)
+		}
+
+		return reconcile.Result{}, nil
+	}
+
 	namespace := &v1beta1.TemporalNamespace{}
 	err = r.Get(ctx, schedule.Spec.NamespaceRef.NamespacedName(schedule), namespace)
 	if err != nil {
-		if apierrors.IsNotFound(err) && !schedule.ObjectMeta.DeletionTimestamp.IsZero() {
+		if apierrors.IsNotFound(err) && deleting {
 			logger.Info("Namespace not found deleting schedule", "namespace", schedule.Spec.NamespaceRef.NamespacedName(schedule))
 			// Two ways to get here:
 			//  - TemporalNamespace has not been created yet. In this case, if the TemporalSchedule is deleted, no point in waiting for the TemporalNamespace to be healthy.
@@ -106,7 +125,10 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Namespace lookup", err)
 	}
 
-	if !namespace.IsReady() {
+	// A schedule marked for deletion goes past the readiness gates below. Its namespace and its
+	// cluster are commonly deleted in the same breath, and waiting for either to be healthy again
+	// would leave the schedule holding its finalizer forever, deletable only by hand.
+	if !deleting && !namespace.IsReady() {
 		logger.Info("Skipping schedule reconciliation until referenced namespace is ready")
 
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
@@ -115,7 +137,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	cluster := &v1beta1.TemporalCluster{}
 	err = r.Get(ctx, namespace.Spec.ClusterRef.NamespacedName(schedule), cluster)
 	if err != nil {
-		if apierrors.IsNotFound(err) && !schedule.ObjectMeta.DeletionTimestamp.IsZero() {
+		if apierrors.IsNotFound(err) && deleting {
 			logger.Info("Cluster not found deleting schedule", "cluster", namespace.Spec.ClusterRef.NamespacedName(schedule))
 			// Two ways to get here:
 			//  - TemporalCluster has not been created yet. In this case, if the TemporalSchedule is deleted, no point in waiting for the TemporalCluster to be healthy.
@@ -130,7 +152,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Cluster lookup", err)
 	}
 
-	if !cluster.IsReady() {
+	if !deleting && !cluster.IsReady() {
 		logger.Info("Skipping schedule reconciliation until referenced cluster is ready")
 
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
@@ -146,7 +168,7 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	clientOpts := func(opt *temporalclient.Options) {
 		opt.Namespace = schedule.Spec.NamespaceRef.Name
 	}
-	client, err := temporal.GetClusterClient(ctx, target.Client, cluster, clientOpts)
+	client, err := r.getClusterClient(ctx, target.Client, cluster, clientOpts)
 	if err != nil {
 		err = fmt.Errorf("can't create cluster client: %w", err)
 		return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Creating cluster client", err)
@@ -154,11 +176,15 @@ func (r *TemporalScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	defer client.Close()
 
 	// Check if the resource has been marked for deletion
-	if !schedule.ObjectMeta.DeletionTimestamp.IsZero() {
+	if deleting {
 		logger.Info("Deleting schedule")
 
 		err := r.ensureScheduleDeleted(ctx, schedule, &client)
 		if err != nil {
+			if errors.Is(err, errDeletionBlocked) {
+				return reconcile.Result{}, r.handleDeletionBlocked(ctx, schedule, err)
+			}
+
 			return r.handleError(ctx, schedule, v1beta1.ReconcileErrorReason, "Deleting schedule", err)
 		}
 		return reconcile.Result{}, nil
@@ -234,6 +260,15 @@ func (r *TemporalScheduleReconciler) ensureFinalizer(ctx context.Context, schedu
 	return removeFinalizerStrict(ctx, r.Client, schedule, deletionFinalizer)
 }
 
+// getClusterClient dials the cluster's frontend, through the test seam when one is set.
+func (r *TemporalScheduleReconciler) getClusterClient(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster, overrides ...temporal.ClientOption) (temporalclient.Client, error) {
+	if r.clusterClient != nil {
+		return r.clusterClient(ctx, c, cluster, overrides...)
+	}
+
+	return temporal.GetClusterClient(ctx, c, cluster, overrides...)
+}
+
 func (r *TemporalScheduleReconciler) ensureScheduleDeleted(ctx context.Context, schedule *v1beta1.TemporalSchedule, client *temporalclient.Client) error {
 	logger := log.FromContext(ctx)
 
@@ -244,9 +279,14 @@ func (r *TemporalScheduleReconciler) ensureScheduleDeleted(ctx context.Context, 
 	_, err := (*client).WorkflowService().DeleteSchedule(ctx, temporal.ScheduleToDeleteScheduleRequest(schedule))
 	if err != nil {
 		var scheduleNotFoundError *serviceerror.NotFound
-		if errors.As(err, &scheduleNotFoundError) {
+		switch {
+		case errors.As(err, &scheduleNotFoundError):
+			// Already gone on the server — the point of the deletion — so the CRD-side cleanup
+			// below is all that is left to do.
 			logger.Info("try to delete but not found", "schedule", schedule.GetName())
-		} else {
+		case deletionRefused(err):
+			return fmt.Errorf("%w: can't delete \"%s\" schedule: %w", errDeletionBlocked, schedule.GetName(), err)
+		default:
 			return fmt.Errorf("can't delete \"%s\" schedule: %w", schedule.GetName(), err)
 		}
 	}
@@ -280,6 +320,25 @@ func (r *TemporalScheduleReconciler) handleErrorWithRequeue(ctx context.Context,
 	}
 	v1beta1.MarkTemporalScheduleReconcileFailed(schedule, reason, err.Error())
 	return reconcile.Result{RequeueAfter: requeueAfter}, err
+}
+
+// handleDeletionBlocked reports a deletion the server refused. Retrying it only rewrites the same
+// status on the same terminating object, so the reconciliation stops and says so, naming the way
+// out: the schedule stays terminating until the server accepts the deletion or the user asks for
+// the finalizer to be dropped without it.
+//
+// Unlike a spec error there is no generation change to bring the object back once the server-side
+// cause is fixed, so the message also names what does: any annotation change re-enqueues it.
+func (r *TemporalScheduleReconciler) handleDeletionBlocked(ctx context.Context, schedule *v1beta1.TemporalSchedule, err error) error {
+	log.FromContext(ctx).Error(err, "Deleting schedule")
+
+	message := fmt.Sprintf(
+		"%s. Fix the cause on the temporal server and change any annotation on this object to retry, or set the %s annotation to \"true\" to drop the finalizer without deleting the schedule on the server.",
+		err.Error(), forceDeleteAnnotation,
+	)
+	v1beta1.MarkTemporalScheduleReconcileFailed(schedule, v1beta1.DeletionBlockedReason, message)
+
+	return reconcile.TerminalError(err)
 }
 
 // handleTerminalError reports an error the schedule's own spec causes. controller-runtime records
