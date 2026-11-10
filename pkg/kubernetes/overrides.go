@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 // PatchPodSpecWithOverride patches the provided pod spec with the provided pod spec override.
@@ -56,6 +57,10 @@ func PatchPodSpecWithOverride(spec, override *corev1.PodSpec) (*corev1.PodSpec, 
 		return nil, fmt.Errorf("can't unmarshal patched pod spec: %w", err)
 	}
 
+	if errs := validatePatchedPodSpec(patchedSpec, field.NewPath("spec")); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid patched pod spec: %w", errs.ToAggregate())
+	}
+
 	return patchedSpec, nil
 }
 
@@ -83,7 +88,22 @@ func ApplyPodTemplateSpecOverrides(podTemplate *corev1.PodTemplateSpec, override
 		if err != nil {
 			return fmt.Errorf("can't patch pod template spec: %w", err)
 		}
-		return json.Unmarshal(patched, &podTemplate.Spec)
+		// Decode into a fresh PodSpec: the strategic merge reorders merge-key lists
+		// (env, volumes, ...) so unmarshalling in place would decode a merged element
+		// on top of an unrelated existing one and keep its stale fields, producing
+		// invalid results such as an EnvVar holding both value and valueFrom.
+		patchedSpec := corev1.PodSpec{}
+		if err := json.Unmarshal(patched, &patchedSpec); err != nil {
+			return fmt.Errorf("can't unmarshal patched pod template spec: %w", err)
+		}
+
+		if errs := validatePatchedPodSpec(&patchedSpec, field.NewPath("spec")); len(errs) > 0 {
+			return fmt.Errorf("invalid patched pod template spec: %w", errs.ToAggregate())
+		}
+
+		podTemplate.Spec = patchedSpec
+
+		return nil
 	}
 	return nil
 }
@@ -126,7 +146,22 @@ func ApplyDeploymentOverrides(deployment *appsv1.Deployment, override *v1beta1.D
 		if err != nil {
 			return fmt.Errorf("can't apply json patch: %w", err)
 		}
-		return json.Unmarshal(patched, &deployment)
+		// Decode into a fresh Deployment for the same reason as above: a json patch
+		// can reorder or remove list elements, and unmarshalling in place would leave
+		// stale fields behind on the elements it decodes over.
+		patchedDeployment := appsv1.Deployment{}
+		if err := json.Unmarshal(patched, &patchedDeployment); err != nil {
+			return fmt.Errorf("can't unmarshal patched deployment: %w", err)
+		}
+
+		errs := validatePatchedPodSpec(&patchedDeployment.Spec.Template.Spec, field.NewPath("spec", "template", "spec"))
+		if len(errs) > 0 {
+			return fmt.Errorf("invalid patched deployment: %w", errs.ToAggregate())
+		}
+
+		*deployment = patchedDeployment
+
+		return nil
 	}
 
 	return nil
