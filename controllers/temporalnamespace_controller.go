@@ -170,7 +170,13 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 	}
 
-	client, err := r.getClusterNamespaceClient(ctx, target.Client, cluster)
+	// The frontend rejects a namespace it can't archive for — bad archival credentials, most
+	// often — with an error the SDK retries until the call's deadline, leaving the caller with
+	// nothing but "context deadline exceeded". The recorder keeps what the frontend actually said,
+	// for the error handling below to report instead.
+	recorder := temporal.NewCallRecorder()
+
+	client, err := r.getClusterNamespaceClient(ctx, target.Client, cluster, temporal.WithCallRecorder(recorder))
 	if err != nil {
 		err = fmt.Errorf("can't create cluster namespace client: %w", err)
 		return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
@@ -194,11 +200,12 @@ func (r *TemporalNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		var namespaceAlreadyExistsError *serviceerror.NamespaceAlreadyExists
 		ok := errors.As(err, &namespaceAlreadyExistsError)
 		if !ok {
-			err = fmt.Errorf("can't create \"%s\" namespace: %w", namespace.GetName(), err)
+			err = fmt.Errorf("can't create \"%s\" namespace: %w", namespace.GetName(), recorder.Explain(err))
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 		err = client.Update(ctx, temporal.NamespaceToUpdateNamespaceRequest(cluster, namespace))
 		if err != nil {
+			err = fmt.Errorf("can't update \"%s\" namespace: %w", namespace.GetName(), recorder.Explain(err))
 			return r.handleError(namespace, v1beta1.ReconcileErrorReason, err)
 		}
 	}
@@ -257,12 +264,12 @@ func (r *TemporalNamespaceReconciler) getClusterClient(ctx context.Context, c cl
 
 // getClusterNamespaceClient dials the cluster's frontend for namespace operations, through the test
 // seam when one is set.
-func (r *TemporalNamespaceReconciler) getClusterNamespaceClient(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster) (temporalclient.NamespaceClient, error) {
+func (r *TemporalNamespaceReconciler) getClusterNamespaceClient(ctx context.Context, c client.Client, cluster *v1beta1.TemporalCluster, overrides ...temporal.ClientOption) (temporalclient.NamespaceClient, error) {
 	if r.namespaceClient != nil {
 		return r.namespaceClient(ctx, c, cluster)
 	}
 
-	return temporal.GetClusterNamespaceClient(ctx, c, cluster)
+	return temporal.GetClusterNamespaceClient(ctx, c, cluster, overrides...)
 }
 
 func (r *TemporalNamespaceReconciler) ensureNamespaceDeleted(ctx context.Context, namespace *v1beta1.TemporalNamespace, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) error {
