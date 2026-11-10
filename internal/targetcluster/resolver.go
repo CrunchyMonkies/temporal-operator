@@ -74,13 +74,21 @@ func NewResolver(local *Target, scheme *runtime.Scheme, log logr.Logger) *Resolv
 // NewLocalTarget describes the cluster the manager watches as a Target, so that reconcilers can
 // treat "no target reference" as just another target instead of a special case.
 func NewLocalTarget(mgr manager.Manager, discoveryMgr discovery.Manager, availableAPIs *internaldiscovery.AvailableAPIs) *Target {
+	target := NewLocalTargetFromClient(mgr.GetClient(), mgr.GetConfig(), discoveryMgr, availableAPIs)
+	target.cache = mgr.GetCache()
+	return target
+}
+
+// NewLocalTargetFromClient returns the local target for a client that is not backed by a manager,
+// as in tests that drive a reconciler directly. It has no cache, which only the drift detection
+// watches of remote targets need.
+func NewLocalTargetFromClient(c client.Client, config *rest.Config, discoveryMgr discovery.Manager, availableAPIs *internaldiscovery.AvailableAPIs) *Target {
 	return &Target{
-		Client:        mgr.GetClient(),
-		Config:        mgr.GetConfig(),
+		Client:        c,
+		Config:        config,
 		Discovery:     discoveryMgr,
 		AvailableAPIs: availableAPIs,
 		local:         true,
-		cache:         mgr.GetCache(),
 	}
 }
 
