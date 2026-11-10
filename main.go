@@ -164,7 +164,7 @@ func main() {
 		Base:            controllers.New(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorderFor("cluster-controller"), discoveryManager), //nolint:staticcheck // SA1019: see note above.
 		AvailableAPIs:   availableAPIs,
 		Resolver:        resolver,
-		UpgradeRecorder: mgr.GetEventRecorderFor("cluster-upgrade"),
+		UpgradeRecorder: mgr.GetEventRecorderFor("cluster-upgrade"), //nolint:staticcheck // SA1019: see note above.
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		os.Exit(1)
