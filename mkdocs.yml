@@ -25,6 +25,7 @@ nav:
     - Dynamic config: features/dynamic-config.md
     - Archival: features/archival.md
     - Temporal UI: features/temporal-ui.md
+    - Liveness probes: features/liveness-probes.md
     - Admin Tools: features/admin-tools.md
     - Upgrades: features/upgrades.md
     - Service exposure: features/service-exposure.md
