@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 )
 
 func newSQLCluster(t *testing.T, v string) *v1beta1.TemporalCluster {
@@ -149,4 +150,62 @@ func TestConfigPasswordCommand(t *testing.T) {
 	require.NotNil(t, cfg.Persistence.DataStores["default"].SQL)
 	assert.NotNil(t, cfg.Persistence.DataStores["default"].SQL.PasswordCommand,
 		"loaded config must carry the passwordCommand")
+}
+
+// TestConfigPProfDisabled asserts that, by default, the generated server config
+// carries no usable pprof port, which is what keeps temporal's pprof HTTP server
+// from starting (it bails out on a zero port).
+func TestConfigPProfDisabled(t *testing.T) {
+	cluster := newSQLCluster(t, "1.31.1")
+	require.Nil(t, cluster.Spec.PProf, "pprof must stay opt-in")
+
+	tmpl := buildConfigTemplate(t, cluster)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(tmpl), 0o600))
+
+	cfg, err := temporalconfig.Load(temporalconfig.WithConfigFile(path))
+	require.NoError(t, err)
+	assert.Zero(t, cfg.Global.PProf.Port, "pprof must be off unless spec.pprof.enabled is set")
+}
+
+// TestConfigPProfEnabled asserts that enabling spec.pprof renders temporal's
+// process-wide global.pprof block, and that the real server config loader reads
+// back the port and host the operator asked for.
+func TestConfigPProfEnabled(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pprof        *v1beta1.PProfSpec
+		expectedPort int
+		expectedHost string
+	}{
+		"defaults": {
+			pprof:        &v1beta1.PProfSpec{Enabled: true},
+			expectedPort: 7936,
+			expectedHost: "127.0.0.1",
+		},
+		"custom port and host": {
+			pprof:        &v1beta1.PProfSpec{Enabled: true, Port: ptr.To(int32(6060)), Host: "0.0.0.0"},
+			expectedPort: 6060,
+			expectedHost: "0.0.0.0",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cluster := newSQLCluster(t, "1.31.1")
+			cluster.Spec.PProf = tc.pprof
+			cluster.Default()
+
+			tmpl := buildConfigTemplate(t, cluster)
+			assert.Contains(t, tmpl, "pprof:", "the global pprof block must be rendered")
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tmpl), 0o600))
+
+			cfg, err := temporalconfig.Load(temporalconfig.WithConfigFile(path))
+			require.NoError(t, err, "generated pprof config must load via the server config loader")
+			assert.Equal(t, tc.expectedPort, cfg.Global.PProf.Port)
+			assert.Equal(t, tc.expectedHost, cfg.Global.PProf.Host)
+		})
+	}
 }

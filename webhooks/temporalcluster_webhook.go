@@ -155,6 +155,10 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 	warns = append(warns, uiWarnings...)
 	errs = append(errs, uiErrors...)
 
+	pprofWarnings, pprofErrors := cluster.Spec.ValidatePProf()
+	warns = append(warns, pprofWarnings...)
+	errs = append(errs, pprofErrors...)
+
 	// Validate that the cluster version is a supported one.
 	err := cluster.Spec.Version.Validate()
 	if err != nil {

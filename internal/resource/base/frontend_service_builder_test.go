@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func newCluster(t *testing.T) *v1beta1.TemporalCluster {
+func newFrontendServiceCluster(t *testing.T) *v1beta1.TemporalCluster {
 	t.Helper()
 
 	cluster := &v1beta1.TemporalCluster{
@@ -75,7 +75,7 @@ func buildFrontendService(t *testing.T, cluster *v1beta1.TemporalCluster, existi
 
 func TestFrontendServiceBuilder(t *testing.T) {
 	t.Run("defaults to a ClusterIP service", func(tt *testing.T) {
-		service := buildFrontendService(tt, newCluster(tt), nil)
+		service := buildFrontendService(tt, newFrontendServiceCluster(tt), nil)
 
 		assert.Equal(tt, corev1.ServiceTypeClusterIP, service.Spec.Type)
 		require.Len(tt, service.Spec.Ports, 2)
@@ -84,7 +84,7 @@ func TestFrontendServiceBuilder(t *testing.T) {
 	})
 
 	t.Run("applies the requested type, annotations and node port", func(tt *testing.T) {
-		cluster := newCluster(tt)
+		cluster := newFrontendServiceCluster(tt)
 		cluster.Spec.Services.Frontend.Service = &v1beta1.ServiceResourceSpec{
 			ObjectMetaOverride: v1beta1.ObjectMetaOverride{
 				Annotations: map[string]string{"service.beta.kubernetes.io/aws-load-balancer-internal": "true"},
@@ -107,7 +107,7 @@ func TestFrontendServiceBuilder(t *testing.T) {
 	})
 
 	t.Run("doesn't revert fields set on the live service", func(tt *testing.T) {
-		cluster := newCluster(tt)
+		cluster := newFrontendServiceCluster(tt)
 		cluster.Spec.Services.Frontend.Service = &v1beta1.ServiceResourceSpec{
 			Type: ptr.To(corev1.ServiceTypeLoadBalancer),
 		}
@@ -128,7 +128,7 @@ func TestFrontendServiceBuilder(t *testing.T) {
 	})
 
 	t.Run("keeps a type set outside of the spec", func(tt *testing.T) {
-		cluster := newCluster(tt)
+		cluster := newFrontendServiceCluster(tt)
 
 		service := buildFrontendService(tt, cluster, nil)
 		service.Spec.Type = corev1.ServiceTypeNodePort

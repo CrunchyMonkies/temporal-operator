@@ -31,3 +31,4 @@ out
 # agent session state
 .omc/
 .serena/
+envtest-bin/
