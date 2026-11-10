@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alexandrevilain/temporal-operator/pkg/version"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -99,6 +100,37 @@ func (s *TemporalUISpec) Validate() (admission.Warnings, field.ErrorList) {
 		if envVar.Name == clientSecretEnvVarName && envVar.Value != "" {
 			errs = append(errs, field.Forbidden(envVarPath, fmt.Sprintf("%s can't be set to an inline value, use spec.ui.auth.oidc.clientSecretRef or a valueFrom secret reference", clientSecretEnvVarName)))
 		}
+	}
+
+	return warns, errs
+}
+
+// ExposedOutsideCluster returns true if the service spec makes the kubernetes Service
+// reachable from outside of the kubernetes cluster.
+func (s *ServiceResourceSpec) ExposedOutsideCluster() bool {
+	if s == nil || s.Type == nil {
+		return false
+	}
+	return *s.Type == corev1.ServiceTypeNodePort || *s.Type == corev1.ServiceTypeLoadBalancer
+}
+
+// Validate validates the kubernetes Service customizations.
+func (s *ServiceResourceSpec) Validate(rootPath *field.Path) (admission.Warnings, field.ErrorList) {
+	var warns admission.Warnings
+	var errs field.ErrorList
+
+	if s == nil {
+		return nil, nil
+	}
+
+	if s.NodePort != nil && !s.ExposedOutsideCluster() {
+		errs = append(errs,
+			field.Invalid(
+				rootPath.Child("nodePort"),
+				*s.NodePort,
+				"nodePort can only be set if the service type is NodePort or LoadBalancer",
+			),
+		)
 	}
 
 	return warns, errs

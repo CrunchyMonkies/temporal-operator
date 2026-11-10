@@ -27,6 +27,7 @@ nav:
     - Temporal UI: features/temporal-ui.md
     - Admin Tools: features/admin-tools.md
     - Upgrades: features/upgrades.md
+    - Service exposure: features/service-exposure.md
     - mTLS:
       - Using Cert-Manager: features/mtls/cert-manager.md
       - Using Istio: features/mtls/istio.md
