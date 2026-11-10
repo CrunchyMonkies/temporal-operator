@@ -343,7 +343,8 @@ func (w *TemporalClusterWebhook) validateCluster(cluster *v1beta1.TemporalCluste
 	// a manifest that copied the default once and was never updated alongside spec.version. The
 	// schema jobs then run with tools that predate the server. The operator only refreshes a
 	// value it wrote itself, so a manifest that keeps re-applying an old default needs a human.
-	if cluster.Spec.AdminTools != nil && version.IsDefaultAdminToolTagForAnotherVersion(cluster.Spec.AdminTools.Version, cluster.Spec.Version) {
+	// Automatic upgrades re-resolve any default tag at every step, so the tag isn't pinned there.
+	if cluster.Spec.AdminTools != nil && !cluster.Spec.Upgrade.IsAutomatic() && version.IsDefaultAdminToolTagForAnotherVersion(cluster.Spec.AdminTools.Version, cluster.Spec.Version) {
 		warns = append(warns, fmt.Sprintf(
 			"spec.admintools.version %q is the admin tools tag for a different Temporal version than spec.version %s (whose tag is %q). The admin tools deployment and the schema setup and update jobs will run the pinned tag; leave spec.admintools.version unset to follow spec.version.",
 			cluster.Spec.AdminTools.Version, cluster.Spec.Version, version.DefaultAdminToolTag(cluster.Spec.Version),
