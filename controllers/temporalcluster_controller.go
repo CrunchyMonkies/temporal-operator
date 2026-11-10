@@ -27,6 +27,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,6 +81,9 @@ type TemporalClusterReconciler struct {
 	// through Target.AvailableAPIs.
 	AvailableAPIs *discovery.AvailableAPIs
 	Resolver      *targetcluster.Resolver
+	// UpgradeRecorder records automatic upgrade events under their own source, so they are not
+	// rate-limited away by the per-resource events of the same reconcile. Defaults to Recorder.
+	UpgradeRecorder record.EventRecorder
 
 	// controller is the handle SetupWithManager built. Drift detection watches for a target cluster
 	// can only be registered once that target has been resolved, which happens long after startup,
@@ -168,22 +172,67 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
+	// With automatic upgrades the cluster is rendered at the current upgrade step rather than at
+	// spec.version: working is then a copy whose status is written back to cluster before patching.
+	working, halted, err := r.prepareUpgrade(ctx, cluster, target)
+	if err != nil {
+		return r.handleErrorWithRequeue(cluster, v1beta1.ReconcileErrorReason, err, 10*time.Second)
+	}
+	if working != cluster {
+		defer func() {
+			// Runs before the patch above, deferred calls being LIFO.
+			cluster.Status = working.Status
+		}()
+	}
+
+	if halted {
+		logger.Info("Automatic upgrade step failed, not reconciling workloads until the spec changes", "step", working.Spec.Version.String())
+		return reconcile.Result{}, nil
+	}
+
+	result, persistenceDone, reconcileErr := r.reconcileCluster(ctx, working, target)
+
+	if working.Spec.Upgrade.IsAutomatic() {
+		upgradeRequeue, err := r.evaluateUpgrade(ctx, working, target, persistenceDone)
+		if err != nil {
+			return result, kerrors.NewAggregate([]error{reconcileErr, err})
+		}
+		if working.Status.Upgrade.Phase == v1beta1.UpgradePhaseFailed {
+			// Halt: don't requeue on a timer nor return the reconcile error for a backoff retry.
+			return reconcile.Result{}, nil
+		}
+		if upgradeRequeue > 0 && (result.RequeueAfter == 0 || upgradeRequeue < result.RequeueAfter) {
+			result.RequeueAfter = upgradeRequeue
+		}
+	}
+
+	return result, reconcileErr
+}
+
+// reconcileCluster reconciles the persistence and the workloads of the cluster in the target, as
+// rendered at cluster.Spec.Version. persistenceDone reports whether every persistence job has
+// completed.
+func (r *TemporalClusterReconciler) reconcileCluster(ctx context.Context, cluster *v1beta1.TemporalCluster, target *targetcluster.Target) (_ ctrl.Result, persistenceDone bool, _ error) {
+	logger := log.FromContext(ctx)
+
 	if requeueAfter, err := r.reconcilePersistence(ctx, cluster, target); err != nil || requeueAfter > 0 {
 		if err != nil {
 			logger.Error(err, "Can't reconcile persistence")
 			if requeueAfter == 0 {
 				requeueAfter = 2 * time.Second
 			}
-			return r.handleErrorWithRequeue(cluster, v1beta1.PersistenceReconciliationFailedReason, err, requeueAfter)
+			result, err := r.handleErrorWithRequeue(cluster, v1beta1.PersistenceReconciliationFailedReason, err, requeueAfter)
+			return result, false, err
 		}
 		if requeueAfter > 0 {
-			return reconcile.Result{RequeueAfter: requeueAfter}, nil
+			return reconcile.Result{RequeueAfter: requeueAfter}, false, nil
 		}
 	}
 
 	if err := r.reconcileResources(ctx, cluster, target); err != nil {
 		logger.Error(err, "Can't reconcile resources")
-		return r.handleErrorWithRequeue(cluster, v1beta1.ResourcesReconciliationFailedReason, err, 2*time.Second)
+		result, err := r.handleErrorWithRequeue(cluster, v1beta1.ResourcesReconciliationFailedReason, err, 2*time.Second)
+		return result, true, err
 	}
 
 	result, err := r.handleSuccess(cluster)
@@ -193,7 +242,7 @@ func (r *TemporalClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		result.RequeueAfter = target.ResyncPeriod
 	}
 
-	return result, err
+	return result, true, err
 }
 
 // reconcileDelete removes the resources the cluster owns in a target cluster before letting it go.

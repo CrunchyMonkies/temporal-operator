@@ -12,6 +12,9 @@ const (
 	ReconcileSuccessCondition string = "ReconcileSuccess"
 	// ReadyCondition indicates the cluster is ready to receive traffic.
 	ReadyCondition string = "Ready"
+	// UpgradingCondition reports the state of an automatic upgrade (spec.upgrade.strategy: Automatic).
+	// It is True while upgrade steps are being rolled out.
+	UpgradingCondition string = "Upgrading"
 )
 
 const (
@@ -34,6 +37,14 @@ const (
 	ResourcesReconciliationFailedReason string = "ResoucesReconciliationFailed"
 	// TemporalClusterValidationFailedReason signals an error while validation desired cluster version.
 	TemporalClusterValidationFailedReason string = "TemporalClusterValidationFailed"
+	// UpgradeInProgressReason signals an automatic upgrade step is being rolled out.
+	UpgradeInProgressReason string = "UpgradeInProgress"
+	// UpgradePausedReason signals an automatic upgrade is held by spec.upgrade.paused.
+	UpgradePausedReason string = "UpgradePaused"
+	// UpgradeFailedReason signals an automatic upgrade step failed and the upgrade halted.
+	UpgradeFailedReason string = "UpgradeFailed"
+	// UpgradeCompletedReason signals the cluster runs the automatic upgrade's target version.
+	UpgradeCompletedReason string = "UpgradeCompleted"
 	// TemporalNamespaceCreatedReason signals a successful namespace creation.
 	TemporalNamespaceCreatedReason string = "TemporalNamespaceCreated"
 	// TemporalScheduleCreatedReason signals a successful schedule creation.
@@ -74,6 +85,22 @@ func SetTemporalClusterReconcileError(c *TemporalCluster, status metav1.Conditio
 }
 
 // GetTemporalClusterReadyCondition returns the ready condition for the provided cluster if found.
+func SetTemporalClusterUpgrading(c *TemporalCluster, status metav1.ConditionStatus, reason, message string) {
+	condition := metav1.Condition{
+		Type:               UpgradingCondition,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: c.GetGeneration(),
+		Reason:             reason,
+		Status:             status,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&c.Status.Conditions, condition)
+}
+
+func RemoveTemporalClusterUpgrading(c *TemporalCluster) {
+	apimeta.RemoveStatusCondition(&c.Status.Conditions, UpgradingCondition)
+}
+
 func GetTemporalClusterReadyCondition(c *TemporalCluster) (*metav1.Condition, bool) {
 	condition := apimeta.FindStatusCondition(c.Status.Conditions, ReadyCondition)
 	return condition, condition != nil
