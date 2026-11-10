@@ -354,6 +354,11 @@ func (b *DeploymentBuilder) Update(object client.Object) error {
 	}
 
 	deployment.Spec.Replicas = b.service.Replicas
+	if b.instance.Spec.Maintenance.IsEnabled() {
+		// The operator owns the scale-down while the cluster is in maintenance mode, so it isn't
+		// undone by the next reconcile the way a manual `kubectl scale` would be.
+		deployment.Spec.Replicas = ptr.To[int32](0)
+	}
 
 	deployment.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: metadata.LabelsSelector(b.instance, b.serviceName),

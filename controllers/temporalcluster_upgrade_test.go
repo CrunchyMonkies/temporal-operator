@@ -448,6 +448,38 @@ func upgradeSpecs(remote bool) {
 		Expect(c.Status.Upgrade.Message).To(ContainSubstring("did not complete within 10m0s (waiting for persistence schema jobs)"))
 	})
 
+	It("holds a step while the cluster is in maintenance mode, without timing it out", func() {
+		createRunningCluster("1.31.5", nil)
+		setSpec(func(c *v1beta1.TemporalCluster) {
+			c.Spec.Version = version.MustNewVersionFromString("1.32.2")
+			c.Spec.Upgrade = &v1beta1.UpgradeSpec{Strategy: v1beta1.AutomaticUpgradeStrategy, StepTimeout: &metav1.Duration{Duration: 10 * time.Minute}}
+			c.Default()
+		})
+		reconcileOnce()
+		rollOutDeployments()
+		reconcileOnce()
+		Expect(currentStep()).To(Equal("1.32.2"))
+
+		setSpec(func(c *v1beta1.TemporalCluster) { c.Spec.Maintenance = &v1beta1.MaintenanceSpec{Enabled: true} })
+		upgradeClock = func() time.Time { return time.Now().Add(11 * time.Minute) }
+		reconcileOnce()
+		c := getCluster()
+		Expect(c.Status.Upgrade.Phase).To(Equal(v1beta1.UpgradePhasePaused))
+		Expect(c.Status.Upgrade.Message).To(HavePrefix(upgradeMaintenanceHoldPrefix))
+		cond := apimeta.FindStatusCondition(c.Status.Conditions, v1beta1.UpgradingCondition)
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+
+		// Leaving maintenance restarts the step clock: the time spent in maintenance is not held
+		// against the step timeout.
+		setSpec(func(c *v1beta1.TemporalCluster) { c.Spec.Maintenance = nil })
+		result := reconcileOnce()
+		c = getCluster()
+		Expect(c.Status.Upgrade.Phase).To(Equal(v1beta1.UpgradePhaseProgressing))
+		Expect(c.Status.Upgrade.StepStartTime.Time).To(BeTemporally(">", time.Now().Add(10*time.Minute)))
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+	})
+
 	It("follows target changes made mid-upgrade", func() {
 		createRunningCluster("1.28.4", nil)
 		setSpec(func(c *v1beta1.TemporalCluster) {

@@ -374,3 +374,34 @@ func (r *TemporalClusterReconciler) deleteFailedJobs(ctx context.Context, target
 	}
 	return nil
 }
+
+// upgradeMaintenanceHoldPrefix starts the status message of an upgrade held by maintenance mode,
+// which is how resumeUpgradeAfterMaintenance tells it from a pause asked for through
+// spec.upgrade.paused.
+const upgradeMaintenanceHoldPrefix = "Upgrade held by maintenance mode"
+
+// holdUpgradeForMaintenance holds an in-flight automatic upgrade while the cluster is in
+// maintenance mode. The services are scaled to zero and no persistence job runs, so the current step
+// can't complete; without the hold it would run into spec.upgrade.stepTimeout and fail.
+func (r *TemporalClusterReconciler) holdUpgradeForMaintenance(working *v1beta1.TemporalCluster) {
+	u := working.Status.Upgrade
+	if u == nil || u.Phase == v1beta1.UpgradePhaseFailed || u.Phase == v1beta1.UpgradePhaseCompleted {
+		return
+	}
+
+	u.Phase = v1beta1.UpgradePhasePaused
+	u.Message = fmt.Sprintf("%s at %s (target %s); it resumes when spec.maintenance is turned off", upgradeMaintenanceHoldPrefix, u.CurrentStep, u.TargetVersion)
+	v1beta1.SetTemporalClusterUpgrading(working, metav1.ConditionFalse, v1beta1.UpgradePausedReason, u.Message)
+}
+
+// resumeUpgradeAfterMaintenance restarts the step clock of an upgrade that maintenance mode held,
+// so the time spent in maintenance doesn't count against spec.upgrade.stepTimeout.
+func (r *TemporalClusterReconciler) resumeUpgradeAfterMaintenance(working *v1beta1.TemporalCluster) {
+	u := working.Status.Upgrade
+	if u == nil || u.Phase != v1beta1.UpgradePhasePaused || !strings.HasPrefix(u.Message, upgradeMaintenanceHoldPrefix) {
+		return
+	}
+
+	u.Phase = v1beta1.UpgradePhaseProgressing
+	u.StepStartTime = &metav1.Time{Time: upgradeClock()}
+}

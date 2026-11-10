@@ -159,3 +159,56 @@ func TestTargetClusterDefaults(t *testing.T) {
 		assert.Equal(t, time.Minute, explicit.GetResyncPeriod())
 	})
 }
+
+func TestMaintenanceSpec(t *testing.T) {
+	tests := map[string]struct {
+		maintenance              *v1beta1.MaintenanceSpec
+		expectedEnabled          bool
+		expectedScalesUI         bool
+		expectedScalesAdminTools bool
+	}{
+		"unset": {
+			maintenance: nil,
+		},
+		"disabled": {
+			maintenance: &v1beta1.MaintenanceSpec{Enabled: false},
+		},
+		"disabled with the extras opted in": {
+			// Nothing scales down while maintenance mode is off, whatever the extras say.
+			maintenance: &v1beta1.MaintenanceSpec{
+				Enabled:           false,
+				IncludeUI:         ptr.To(true),
+				IncludeAdminTools: ptr.To(true),
+			},
+		},
+		"enabled with defaults": {
+			maintenance:      &v1beta1.MaintenanceSpec{Enabled: true},
+			expectedEnabled:  true,
+			expectedScalesUI: true,
+		},
+		"enabled keeping the ui up": {
+			maintenance: &v1beta1.MaintenanceSpec{
+				Enabled:   true,
+				IncludeUI: ptr.To(false),
+			},
+			expectedEnabled: true,
+		},
+		"enabled taking the admin tools down too": {
+			maintenance: &v1beta1.MaintenanceSpec{
+				Enabled:           true,
+				IncludeAdminTools: ptr.To(true),
+			},
+			expectedEnabled:          true,
+			expectedScalesUI:         true,
+			expectedScalesAdminTools: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.expectedEnabled, test.maintenance.IsEnabled())
+			assert.Equal(t, test.expectedScalesUI, test.maintenance.ScalesDownUI())
+			assert.Equal(t, test.expectedScalesAdminTools, test.maintenance.ScalesDownAdminTools())
+		})
+	}
+}
