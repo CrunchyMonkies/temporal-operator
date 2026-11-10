@@ -15,7 +15,6 @@ Improvements:
 
     **Known limitation:** the schema-setup jobs run the command inside the `admin-tools` image, and their pod spec is fully operator-owned — there is no volume or container override through which a helper binary could be supplied. The command must therefore already exist in that image. If it does not, the server pods resolve the password correctly but schema setup fails with a password-authentication error. The webhook emits an admission warning to this effect. Extending the schema jobs with pod-level overrides is tracked separately.
   - Elasticsearch visibility on `>= 1.31` uses the `temporal-elasticsearch-tool` path introduced for `>= 1.30` (see the 1.30 entry); its embedded index template applies all built-in search attributes up to v14 (including `TemporalExternalPayloadSizeBytes`/`TemporalExternalPayloadCount`) automatically.
-
 - Add support for Temporal Server v1.32.x. The default Temporal version is now `1.32.2`, the default Temporal UI version is now `2.58.1`, and the supported version range is extended to `< 1.33.0`.
   - v1.32 needs no operator-side changes: the server/admin-tools image contract (sprig config templating, `TEMPORAL_SERVICES`, `temporal-sql-tool` / `temporal-elasticsearch-tool`) is unchanged from v1.30/v1.31. Its changes are dynamic-config and behavioural, set through the cluster `dynamicConfig` field. Review the [v1.32.0 release notes](https://github.com/temporalio/temporal/releases/tag/v1.32.0) before upgrading, in particular:
     - the unified visibility query converter is now the default and rejects mismatched search-attribute types (opt out with `system.visibilityEnableUnifiedQueryConverter: false`);
@@ -23,6 +22,8 @@ Improvements:
     - the `tasks_expired` metric is removed in favour of `tasks_dropped`;
     - v1.32 is the last release with the deprecated Worker Versioning APIs; migrate to Worker Deployments before v1.33.
   - Upgrades still move one minor version at a time (`1.31.x` -> `1.32.x`).
+  - **Upgrading the operator restarts every managed cluster once.** The rendered server config is marshalled from `go.temporal.io/server`'s config struct, and v1.32 adds two zero-valued fields (`global.metrics.tagsCacheMaxSize`, `global.remoteClusterAuth.require`). That changes the config hash on the pod templates, so all services of every TemporalCluster roll once, whatever its Temporal version. The fields are inert, and older servers accept them (verified on a 1.24.3 cluster). Rolling the operator back rolls the pods again.
+
 Fixes:
 - Preserve externally-added pod-template labels and annotations (e.g. `kubectl.kubernetes.io/restartedAt` from `kubectl rollout restart`) across reconciles, while still removing operator-managed ones when the spec stops asking for them. Disabling a feature now actually clears its metadata: previously, clearing `spec.mTLS` left `sidecar.istio.io/inject: "true"` behind and istio kept injecting sidecars, and turning off `spec.metrics` left the `prometheus.io/*` scrape annotations in place.
 - `spec.version` values that are marked broken no longer suggest another broken release as the upgrade target (`1.26.0` previously suggested `1.26.1`, which is also rejected).
